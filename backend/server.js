@@ -10,6 +10,7 @@ import loginRoutes from "./routes/login.js";
 import authRoutes from "./routes/auth.js";
 import registrationRoutes from "./routes/registration.js";
 import sidebarRoutes from "./routes/sidebar.js";
+import restaurantCategoryRoutes from "./routes/restaurantCategory.js";
 
 const app = express();
 
@@ -40,6 +41,7 @@ app.use("/api/auth", loginRoutes);
 app.use("/api/auth", authRoutes);
 app.use("/api/registration", registrationRoutes);
 app.use("/api/sidebar", sidebarRoutes);
+app.use("/api/restaurant-category", restaurantCategoryRoutes);
 
 db.query("SELECT 1")
   .then(() => {
