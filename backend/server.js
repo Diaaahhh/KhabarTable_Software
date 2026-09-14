@@ -11,6 +11,8 @@ import authRoutes from "./routes/auth.js";
 import registrationRoutes from "./routes/registration.js";
 import sidebarRoutes from "./routes/sidebar.js";
 import restaurantCategoryRoutes from "./routes/restaurantCategory.js";
+import employeeRoutes from "./routes/create_employee.js";
+import branchRoutes from "./routes/branch_list.js";
 
 const app = express();
 
@@ -42,6 +44,8 @@ app.use("/api/auth", authRoutes);
 app.use("/api/registration", registrationRoutes);
 app.use("/api/sidebar", sidebarRoutes);
 app.use("/api/restaurant-category", restaurantCategoryRoutes);
+app.use("/api/employees", employeeRoutes);
+app.use("/api/branches", branchRoutes);
 
 db.query("SELECT 1")
   .then(() => {
