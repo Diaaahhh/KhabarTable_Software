@@ -13,6 +13,8 @@ import sidebarRoutes from "./routes/sidebar.js";
 import restaurantCategoryRoutes from "./routes/restaurantCategory.js";
 import employeeRoutes from "./routes/create_employee.js";
 import branchRoutes from "./routes/branch_list.js";
+import variantRoutes from "./routes/variant.js";
+import menuCategoryRoutes from "./routes/create_menucategory.js";
 
 const app = express();
 
@@ -46,6 +48,8 @@ app.use("/api/sidebar", sidebarRoutes);
 app.use("/api/restaurant-category", restaurantCategoryRoutes);
 app.use("/api/employees", employeeRoutes);
 app.use("/api/branches", branchRoutes);
+app.use("/api/menu-varient", variantRoutes);
+app.use("/api/menu-categories", menuCategoryRoutes);
 
 db.query("SELECT 1")
   .then(() => {

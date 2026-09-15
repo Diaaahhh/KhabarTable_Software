@@ -102,6 +102,7 @@ router.post("/login", async (req, res) => {
         id: user.id,
         company_id: user.company_id,
         company_name: user.company_name,
+        restaurant_type: user.restaurant_type,
         email: user.email,
         role: user.role,
       }),

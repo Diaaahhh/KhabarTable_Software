@@ -231,6 +231,54 @@ router.post(
 
       await connection.beginTransaction();
 
+// =========================================================
+// VALIDATE RESTAURANT CATEGORY ID
+// =========================================================
+
+const restaurantCategoryId = Number(restaurantType);
+
+if (
+  !Number.isInteger(restaurantCategoryId) ||
+  restaurantCategoryId < 1
+) {   
+  await connection.rollback();
+
+  if (req.file) {
+    fs.unlinkSync(req.file.path);
+  }
+
+  return res.status(400).json({
+    success: false,
+    message: "Please select a valid restaurant type.",
+  });
+}
+
+// =========================================================
+// CHECK RESTAURANT CATEGORY EXISTS
+// =========================================================
+
+const [restaurantCategoryRows] = await connection.execute(
+  `
+    SELECT id
+    FROM restaurant_category
+    WHERE id = ?
+    LIMIT 1
+  `,
+  [restaurantCategoryId]
+);
+
+if (restaurantCategoryRows.length === 0) {
+  await connection.rollback();
+
+  if (req.file) {
+    fs.unlinkSync(req.file.path);
+  }
+
+  return res.status(400).json({
+    success: false,
+    message: "Selected restaurant type does not exist.",
+  });
+}
 
       /*
       |--------------------------------------------------------------------------
@@ -352,18 +400,18 @@ router.post(
           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `,
         [
-          companyId,
-          companyName,
-          phone,
-          email,
-          3,
-          finalBranchCount,
-          hashedPassword,
-          softwareApiKey,
-          JSON.stringify(restaurantType),
-          address,
-          logoPath,
-        ]
+  companyId,
+  companyName,
+  phone,
+  email,
+  3,
+  finalBranchCount,
+  hashedPassword,
+  softwareApiKey,
+  Number(restaurantType),
+  address,
+  logoPath,
+]
       );
 
 
@@ -1055,5 +1103,50 @@ router.post(
   }
 );
 
+/*
+|--------------------------------------------------------------------------
+| GET RESTAURANT CATEGORIES
+|--------------------------------------------------------------------------
+|
+| GET /api/registration/restaurant-categories
+|
+| Fetches restaurant types from:
+| restaurant_category
+|
+|--------------------------------------------------------------------------
+*/
+
+router.get(
+  "/restaurant-categories",
+  async (req, res) => {
+    try {
+      const [rows] = await db.execute(
+        `
+          SELECT
+            id,
+            res_category
+          FROM restaurant_category
+          ORDER BY id ASC
+        `
+      );
+
+      return res.status(200).json({
+        success: true,
+        data: rows,
+      });
+    } catch (error) {
+      console.error(
+        "Failed to fetch restaurant categories:",
+        error
+      );
+
+      return res.status(500).json({
+        success: false,
+        message:
+          "Failed to fetch restaurant categories.",
+      });
+    }
+  }
+);
 
 export default router;
