@@ -15,6 +15,7 @@ import employeeRoutes from "./routes/create_employee.js";
 import branchRoutes from "./routes/branch_list.js";
 import variantRoutes from "./routes/variant.js";
 import menuCategoryRoutes from "./routes/create_menucategory.js";
+import menuSubcategoryRoutes from "./routes/create_menu_subcategory.js";
 
 const app = express();
 
@@ -50,6 +51,7 @@ app.use("/api/employees", employeeRoutes);
 app.use("/api/branches", branchRoutes);
 app.use("/api/menu-varient", variantRoutes);
 app.use("/api/menu-categories", menuCategoryRoutes);
+app.use("/api/menu-subcategories",menuSubcategoryRoutes,);
 
 db.query("SELECT 1")
   .then(() => {
