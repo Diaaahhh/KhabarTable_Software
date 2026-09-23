@@ -1,0 +1,173 @@
+@import "tailwindcss";
+
+/* =========================================================
+   GLOBAL COLOR VARIABLES
+   ========================================================= */
+
+:root {
+  /* ---------------------------------------------------------
+     Base
+     --------------------------------------------------------- */
+  --background: #ffffff;
+  --foreground: #221f24;
+
+  /* ---------------------------------------------------------
+     Brand Colors
+     --------------------------------------------------------- */
+  --primary: #7d1119;
+  --primary-hover: #221f24;
+  --primary-light: #c43e46;
+
+  /* ---------------------------------------------------------
+     Secondary Colors
+     --------------------------------------------------------- */
+  --secondary: #717b8b;
+  --secondary-hover: #221f24;
+  --secondary-light: #8f9aa6;
+
+  /* ---------------------------------------------------------
+     Exact Palette Colors
+     --------------------------------------------------------- */
+  --palette-dark: #221f24;
+  --palette-burgundy: #7d1119;
+  --palette-red: #c43e46;
+  --palette-grey-light: #8f9aa6;
+  --palette-grey: #717b8b;
+
+  /* ---------------------------------------------------------
+     Black & White
+     --------------------------------------------------------- */
+  --black: #000000;
+  --white: #ffffff;
+
+  /* ---------------------------------------------------------
+     Surfaces
+     --------------------------------------------------------- */
+  --surface: #ffffff;
+  --surface-dark: #f5f5f6;
+  --surface-grey: #f0f2f4;
+
+  /* ---------------------------------------------------------
+     Text
+     --------------------------------------------------------- */
+  --text-primary: #221f24;
+  --text-secondary: #717b8b;
+  --text-muted: #8f9aa6;
+  --text-white: #ffffff;
+
+  /* ---------------------------------------------------------
+     Borders
+     --------------------------------------------------------- */
+  --border: #d9dde1;
+  --border-dark: #8f9aa6;
+
+  /* ---------------------------------------------------------
+     Status
+     --------------------------------------------------------- */
+  --success: #2e7d32;
+  --danger: #7d1119;
+  --warning: #b7791f;
+  --info: #3b6ea8;
+}
+
+
+/* =========================================================
+   TAILWIND THEME
+   ========================================================= */
+
+@theme inline {
+  /* ---------------------------------------------------------
+     Base
+     --------------------------------------------------------- */
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+
+  /* ---------------------------------------------------------
+     Brand
+     --------------------------------------------------------- */
+  --color-primary: var(--primary);
+  --color-primary-hover: var(--primary-hover);
+  --color-primary-light: var(--primary-light);
+
+  /* ---------------------------------------------------------
+     Secondary
+     --------------------------------------------------------- */
+  --color-secondary: var(--secondary);
+  --color-secondary-hover: var(--secondary-hover);
+  --color-secondary-light: var(--secondary-light);
+
+  /* ---------------------------------------------------------
+     Exact Palette
+     --------------------------------------------------------- */
+  --color-palette-dark: var(--palette-dark);
+  --color-palette-burgundy: var(--palette-burgundy);
+  --color-palette-red: var(--palette-red);
+  --color-palette-grey-light: var(--palette-grey-light);
+  --color-palette-grey: var(--palette-grey);
+
+  /* ---------------------------------------------------------
+     Black & White
+     --------------------------------------------------------- */
+  --color-black: var(--black);
+  --color-white: var(--white);
+
+  /* ---------------------------------------------------------
+     Surfaces
+     --------------------------------------------------------- */
+  --color-surface: var(--surface);
+  --color-surface-dark: var(--surface-dark);
+  --color-surface-grey: var(--surface-grey);
+
+  /* ---------------------------------------------------------
+     Text
+     --------------------------------------------------------- */
+  --color-text-primary: var(--text-primary);
+  --color-text-secondary: var(--text-secondary);
+  --color-text-muted: var(--text-muted);
+  --color-text-white: var(--text-white);
+
+  /* ---------------------------------------------------------
+     Borders
+     --------------------------------------------------------- */
+  --color-border: var(--border);
+  --color-border-dark: var(--border-dark);
+
+  /* ---------------------------------------------------------
+     Status
+     --------------------------------------------------------- */
+  --color-success: var(--success);
+  --color-danger: var(--danger);
+  --color-warning: var(--warning);
+  --color-info: var(--info);
+
+  /* ---------------------------------------------------------
+     Fonts
+     --------------------------------------------------------- */
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+
+/* =========================================================
+   BODY
+   ========================================================= */
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+/* =========================================================
+   LOGIN PAGE
+   ========================================================= */
+
+.login-page {
+  min-height: 100vh;
+  width: 100%;
+
+  background-image: url("/images/login.png");
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+}
