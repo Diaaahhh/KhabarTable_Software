@@ -16,6 +16,8 @@ import branchRoutes from "./routes/branch_list.js";
 import variantRoutes from "./routes/variant.js";
 import menuCategoryRoutes from "./routes/create_menucategory.js";
 import menuSubcategoryRoutes from "./routes/create_menu_subcategory.js";
+import authorizationRoutes from "./routes/authorization.js";
+import createIngredientsRouter from "./routes/create_ingredients.js";
 
 const app = express();
 
@@ -52,6 +54,11 @@ app.use("/api/branches", branchRoutes);
 app.use("/api/menu-varient", variantRoutes);
 app.use("/api/menu-categories", menuCategoryRoutes);
 app.use("/api/menu-subcategories",menuSubcategoryRoutes,);
+app.use("/api/authorization", authorizationRoutes);
+app.use(
+  "/api/menu-ingredients",
+  createIngredientsRouter
+);
 
 db.query("SELECT 1")
   .then(() => {

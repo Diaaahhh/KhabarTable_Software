@@ -153,6 +153,7 @@ async function generateSoftwareApiKey(connection) {
 |
 */
 
+
 router.post(
   "/company",
   upload.single("logo"),
@@ -172,22 +173,20 @@ router.post(
         branchCount,
       } = req.body;
 
-      /*
-      |--------------------------------------------------------------------------
-      | Validation
-      |--------------------------------------------------------------------------
-      */
+      // =========================================================
+      // Validation
+      // =========================================================
 
       if (
         !companyName ||
-  !name ||
-  !email ||
-  !phone ||
-  !password ||
-  !designation ||
-  !address ||
-  !restaurantType ||
-  !branchCount
+        !name ||
+        !email ||
+        !phone ||
+        !password ||
+        !designation ||
+        !address ||
+        !restaurantType ||
+        !branchCount
       ) {
         return res.status(400).json({
           success: false,
@@ -207,12 +206,9 @@ router.post(
         });
       }
 
-
-      /*
-      |--------------------------------------------------------------------------
-      | Check Logo
-      |--------------------------------------------------------------------------
-      */
+      // =========================================================
+      // Check Logo
+      // =========================================================
 
       let logoPath = null;
 
@@ -220,71 +216,65 @@ router.post(
         logoPath = `/uploads/company/${req.file.filename}`;
       }
 
-
-      /*
-      |--------------------------------------------------------------------------
-      | Get Database Connection
-      |--------------------------------------------------------------------------
-      */
+      // =========================================================
+      // Get Database Connection
+      // =========================================================
 
       connection = await db.getConnection();
-
       await connection.beginTransaction();
 
-// =========================================================
-// VALIDATE RESTAURANT CATEGORY ID
-// =========================================================
+      // =========================================================
+      // VALIDATE RESTAURANT CATEGORY ID
+      // =========================================================
 
-const restaurantCategoryId = Number(restaurantType);
+      const restaurantCategoryId = Number(restaurantType);
 
-if (
-  !Number.isInteger(restaurantCategoryId) ||
-  restaurantCategoryId < 1
-) {   
-  await connection.rollback();
+      if (
+        !Number.isInteger(restaurantCategoryId) ||
+        restaurantCategoryId < 1
+      ) {
+        await connection.rollback();
 
-  if (req.file) {
-    fs.unlinkSync(req.file.path);
-  }
+        if (req.file) {
+          fs.unlinkSync(req.file.path);
+        }
 
-  return res.status(400).json({
-    success: false,
-    message: "Please select a valid restaurant type.",
-  });
-}
+        return res.status(400).json({
+          success: false,
+          message: "Please select a valid restaurant type.",
+        });
+      }
 
-// =========================================================
-// CHECK RESTAURANT CATEGORY EXISTS
-// =========================================================
+      // =========================================================
+      // CHECK RESTAURANT CATEGORY EXISTS
+      // =========================================================
 
-const [restaurantCategoryRows] = await connection.execute(
-  `
-    SELECT id
-    FROM restaurant_category
-    WHERE id = ?
-    LIMIT 1
-  `,
-  [restaurantCategoryId]
-);
+      const [restaurantCategoryRows] = await connection.execute(
+        `
+          SELECT id
+          FROM restaurant_category
+          WHERE id = ?
+          LIMIT 1
+        `,
+        [restaurantCategoryId]
+      );
 
-if (restaurantCategoryRows.length === 0) {
-  await connection.rollback();
+      if (restaurantCategoryRows.length === 0) {
+        await connection.rollback();
 
-  if (req.file) {
-    fs.unlinkSync(req.file.path);
-  }
+        if (req.file) {
+          fs.unlinkSync(req.file.path);
+        }
 
-  return res.status(400).json({
-    success: false,
-    message: "Selected restaurant type does not exist.",
-  });
-}
+        return res.status(400).json({
+          success: false,
+          message: "Selected restaurant type does not exist.",
+        });
+      }
 
-      /*
-      |--------------------------------------------------------------------------
-      | Check Duplicate Email
-      |--------------------------------------------------------------------------
-      */
+      // =========================================================
+      // Check Duplicate Email
+      // =========================================================
 
       const [emailRows] = await connection.execute(
         `
@@ -309,12 +299,9 @@ if (restaurantCategoryRows.length === 0) {
         });
       }
 
-
-      /*
-      |--------------------------------------------------------------------------
-      | Check Duplicate Phone
-      |--------------------------------------------------------------------------
-      */
+      // =========================================================
+      // Check Duplicate Phone
+      // =========================================================
 
       const [phoneRows] = await connection.execute(
         `
@@ -339,48 +326,33 @@ if (restaurantCategoryRows.length === 0) {
         });
       }
 
+      // =========================================================
+      // Generate Company ID
+      // =========================================================
 
-      /*
-      |--------------------------------------------------------------------------
-      | Generate Company ID
-      |--------------------------------------------------------------------------
-      */
+      const companyId = await generateCompanyId(connection);
 
-      const companyId = await generateCompanyId(
-        connection
-      );
-
-
-      /*
-      |--------------------------------------------------------------------------
-      | Generate Software API Key
-      |--------------------------------------------------------------------------
-      */
+      // =========================================================
+      // Generate Software API Key
+      // =========================================================
 
       const softwareApiKey =
         await generateSoftwareApiKey(connection);
 
-
-      /*
-      |--------------------------------------------------------------------------
-      | Hash Password
-      |--------------------------------------------------------------------------
-      */
+      // =========================================================
+      // Hash Password
+      // =========================================================
 
       const hashedPassword = await bcrypt.hash(
         password,
         12
       );
 
-
-      /*
-      |--------------------------------------------------------------------------
-      | Insert Company
-      |--------------------------------------------------------------------------
-      |
-      | role = 3
-      |
-      */
+      // =========================================================
+      // Insert Company
+      // role = 3
+      // branchCount_Remaining = branchCount initially
+      // =========================================================
 
       const [result] = await connection.execute(
         `
@@ -391,49 +363,71 @@ if (restaurantCategoryRows.length === 0) {
             email,
             role,
             branchCount,
+            branchCount_Remaining,
             password,
             software_api_key,
             restaurant_type,
             address,
             logo
           )
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `,
         [
-  companyId,
-  companyName,
-  phone,
-  email,
-  3,
-  finalBranchCount,
-  hashedPassword,
-  softwareApiKey,
-  Number(restaurantType),
-  address,
-  logoPath,
-]
+          companyId,
+          companyName,
+          phone,
+          email,
+          3,
+          finalBranchCount,
+          finalBranchCount, // Same value as branchCount
+          hashedPassword,
+          softwareApiKey,
+          Number(restaurantType),
+          address,
+          logoPath,
+        ]
       );
 
+    // =========================================================
+// ASSIGN DEFAULT MENUS TO NEW COMPANY USER
+// =========================================================
 
-      /*
-      |--------------------------------------------------------------------------
-      | Commit Transaction
-      |--------------------------------------------------------------------------
-      */
+const newUserId = result.insertId;
+
+const defaultMenuIds = [6, 9, 10, 11, 12, 13, 14, 15];
+
+const menuValues = defaultMenuIds
+  .map(() => "(?, ?)")
+  .join(", ");
+
+const menuParams = defaultMenuIds.flatMap((menuId) => [
+  newUserId,
+  menuId,
+]);
+
+await connection.execute(
+  `
+    INSERT INTO user_user_menu (
+      user_id,
+      user_menu_id
+    )
+    VALUES ${menuValues}
+  `,
+  menuParams
+);
+      // =========================================================
+      // Commit Transaction
+      // =========================================================
 
       await connection.commit();
 
-
-      /*
-      |--------------------------------------------------------------------------
-      | Success Response
-      |--------------------------------------------------------------------------
-      */
+      // =========================================================
+      // Success Response
+      // =========================================================
 
       return res.status(201).json({
         success: true,
         message: "Company registered successfully.",
-
         data: {
           id: result.insertId,
           companyId,
@@ -442,12 +436,14 @@ if (restaurantCategoryRows.length === 0) {
           phone,
           role: 3,
           branchCount: finalBranchCount,
+          branchCount_Remaining: finalBranchCount,
           softwareApiKey,
           restaurantType,
           address,
           logo: logoPath,
         },
       });
+
     } catch (error) {
       console.error(
         "Company registration error:",
@@ -458,11 +454,9 @@ if (restaurantCategoryRows.length === 0) {
         await connection.rollback();
       }
 
-      /*
-      |--------------------------------------------------------------------------
-      | Delete Uploaded Logo If Registration Failed
-      |--------------------------------------------------------------------------
-      */
+      // =========================================================
+      // Delete Uploaded Logo If Registration Failed
+      // =========================================================
 
       if (req.file) {
         try {
@@ -477,15 +471,11 @@ if (restaurantCategoryRows.length === 0) {
         }
       }
 
-      /*
-      |--------------------------------------------------------------------------
-      | Multer File Size Error
-      |--------------------------------------------------------------------------
-      */
+      // =========================================================
+      // Multer File Size Error
+      // =========================================================
 
-      if (
-        error.code === "LIMIT_FILE_SIZE"
-      ) {
+      if (error.code === "LIMIT_FILE_SIZE") {
         return res.status(400).json({
           success: false,
           message:
@@ -493,11 +483,9 @@ if (restaurantCategoryRows.length === 0) {
         });
       }
 
-      /*
-      |--------------------------------------------------------------------------
-      | MySQL Duplicate Entry
-      |--------------------------------------------------------------------------
-      */
+      // =========================================================
+      // MySQL Duplicate Entry
+      // =========================================================
 
       if (error.code === "ER_DUP_ENTRY") {
         return res.status(409).json({
@@ -512,6 +500,7 @@ if (restaurantCategoryRows.length === 0) {
         message:
           "Company registration failed.",
       });
+
     } finally {
       if (connection) {
         connection.release();
@@ -783,7 +772,83 @@ router.post(
 
       connection = await db.getConnection();
 
-      await connection.beginTransaction();
+await connection.beginTransaction();
+
+// =========================================================
+// CHECK REMAINING BRANCH COUNT
+// =========================================================
+
+const [companyRows] = await connection.execute(
+  `
+    SELECT
+      branchCount,
+      branchCount_Remaining
+    FROM users
+    WHERE company_id = ?
+      AND role = 3
+    LIMIT 1
+    FOR UPDATE
+  `,
+  [companyId]
+);
+
+if (companyRows.length === 0) {
+  await connection.rollback();
+
+  if (req.file) {
+    try {
+      if (fs.existsSync(req.file.path)) {
+        fs.unlinkSync(req.file.path);
+      }
+    } catch (fileError) {
+      console.error(
+        "Failed to delete uploaded logo:",
+        fileError
+      );
+    }
+  }
+
+  return res.status(404).json({
+    success: false,
+    message: "Company information not found.",
+  });
+}
+
+const branchCount = Number(companyRows[0].branchCount) || 0;
+const branchCountRemaining =
+  Number(companyRows[0].branchCount_Remaining) || 0;
+
+// ---------------------------------------------------------
+// NO BRANCH SLOT REMAINING
+// ---------------------------------------------------------
+
+if (branchCountRemaining <= 0) {
+  await connection.rollback();
+
+  if (req.file) {
+    try {
+      if (fs.existsSync(req.file.path)) {
+        fs.unlinkSync(req.file.path);
+      }
+    } catch (fileError) {
+      console.error(
+        "Failed to delete uploaded logo:",
+        fileError
+      );
+    }
+  }
+
+  return res.status(403).json({
+    success: false,
+    code: "NO_BRANCH_SLOT",
+    message:
+      "You have reached your maximum number of branches. No more branches can be created.",
+    data: {
+      branchCount,
+      branchCount_Remaining: 0,
+    },
+  });
+}
 
       // =========================================================
       // CHECK DUPLICATE EMAIL
@@ -976,6 +1041,24 @@ router.post(
       );
 
       // =========================================================
+// DECREASE REMAINING BRANCH COUNT
+// =========================================================
+
+const newBranchCountRemaining = branchCountRemaining - 1;
+
+await connection.execute(
+  `
+    UPDATE users
+    SET branchCount_Remaining = ?
+    WHERE company_id = ?
+      AND role = 3
+  `,
+  [
+    newBranchCountRemaining,
+    companyId,
+  ]
+);
+      // =========================================================
       // COMMIT TRANSACTION
       // =========================================================
 
@@ -986,24 +1069,25 @@ router.post(
       // =========================================================
 
       return res.status(201).json({
-        success: true,
-        message: "Branch registered successfully.",
-        data: {
-          id: result.insertId,
-          companyId,
-          companyName,
-          branchName: cleanBranchName,
-          email: cleanEmail,
-          phone: cleanPhone,
-          role: 4,
-          branchCount: null,
-          softwareApiKey,
-          restaurantType: null,
-          location: cleanLocation,
-          logo: logoPath,
-          createdBy,
-        },
-      });
+  success: true,
+  message: "Branch registered successfully.",
+  data: {
+    id: result.insertId,
+    companyId,
+    companyName,
+    branchName: cleanBranchName,
+    email: cleanEmail,
+    phone: cleanPhone,
+    role: 4,
+    branchCount: null,
+    branchCount_Remaining: newBranchCountRemaining,
+    softwareApiKey,
+    restaurantType: null,
+    location: cleanLocation,
+    logo: logoPath,
+    createdBy,
+  },
+});
 
     } catch (error) {
       console.error(
@@ -1149,4 +1233,125 @@ router.get(
   }
 );
 
+// =========================================================
+// GET BRANCH COUNT INFORMATION
+// =========================================================
+// GET /api/registration/branch-count
+//
+// Returns:
+// branchCount           -> Total branches allowed
+// branchCount_Remaining -> Remaining branches that can be created
+// =========================================================
+
+router.get(
+  "/branch-count",
+  async (req, res) => {
+    let connection;
+
+    try {
+      // =======================================================
+      // GET LOGGED-IN USER FROM COOKIE
+      // =======================================================
+
+      const authCookie = req.cookies?.auth;
+
+      if (!authCookie) {
+        return res.status(401).json({
+          success: false,
+          message: "You must be logged in.",
+        });
+      }
+
+      let loggedInUser;
+
+      try {
+        loggedInUser = JSON.parse(authCookie);
+      } catch (cookieError) {
+        console.error(
+          "Failed to parse authentication cookie:",
+          cookieError
+        );
+
+        return res.status(401).json({
+          success: false,
+          message: "Invalid authentication.",
+        });
+      }
+
+      // =======================================================
+      // GET COMPANY ID
+      // =======================================================
+
+      const companyId = Number(loggedInUser.company_id);
+
+      if (!companyId) {
+        return res.status(401).json({
+          success: false,
+          message:
+            "Your authentication information is incomplete.",
+        });
+      }
+
+      // =======================================================
+      // DATABASE CONNECTION
+      // =======================================================
+
+      connection = await db.getConnection();
+
+      // =======================================================
+      // GET BRANCH COUNT
+      // =======================================================
+
+      const [rows] = await connection.execute(
+        `
+          SELECT
+            branchCount,
+            branchCount_Remaining
+          FROM users
+          WHERE company_id = ?
+            AND role = 3
+          LIMIT 1
+        `,
+        [companyId]
+      );
+
+      if (rows.length === 0) {
+        return res.status(404).json({
+          success: false,
+          message: "Company information not found.",
+        });
+      }
+
+      // =======================================================
+      // RESPONSE
+      // =======================================================
+
+      return res.status(200).json({
+        success: true,
+        data: {
+          branchCount: Number(rows[0].branchCount) || 0,
+          branchCount_Remaining:
+            Number(rows[0].branchCount_Remaining) || 0,
+        },
+      });
+
+    } catch (error) {
+      console.error(
+        "Failed to fetch branch count:",
+        error
+      );
+
+      return res.status(500).json({
+        success: false,
+        message:
+          "Failed to fetch branch count information.",
+      });
+
+    } finally {
+      if (connection) {
+        connection.release();
+      }
+    }
+  }
+);
 export default router;

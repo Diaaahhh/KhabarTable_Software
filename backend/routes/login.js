@@ -148,5 +148,38 @@ router.post("/login", async (req, res) => {
   }
 });
 
+// =========================================================
+// LOGOUT
+// =========================================================
+
+router.post("/logout", async (req, res) => {
+  try {
+    // ---------------------------------------------------------
+    // Clear authentication cookie
+    // ---------------------------------------------------------
+
+    res.clearCookie("auth", {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+    });
+
+    // ---------------------------------------------------------
+    // Successful logout
+    // ---------------------------------------------------------
+
+    return res.status(200).json({
+      success: true,
+      message: "Logout successful.",
+    });
+  } catch (error) {
+    console.error("Logout error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Logout failed.",
+    });
+  }
+});
 
 export default router;

@@ -313,12 +313,7 @@ router.get("/variants", async (req, res) => {
       });
     }
 
-    /*
-    |--------------------------------------------------------------
-    | Check menu item exists
-    |--------------------------------------------------------------
-    */
-
+    // Check that the selected menu item exists
     const [menuItemRows] = await db.query(
       `
       SELECT id
@@ -336,38 +331,32 @@ router.get("/variants", async (req, res) => {
     }
 
     /*
-    |--------------------------------------------------------------
-    | Get variants
-    |--------------------------------------------------------------
-    */
+     * menu_variant now contains only:
+     *
+     * id
+     * variant_name
+     *
+     * Therefore we do NOT filter by menu_subcategory_id here.
+     */
 
     const [variants] = await db.query(
       `
       SELECT
         id,
-        variant_name,
-        menu_subcategory_id,
-        price
+        variant_name
       FROM menu_variant
-      WHERE menu_subcategory_id = ?
       ORDER BY variant_name ASC
-      `,
-      [menu_subcategory_id]
+      `
     );
 
     return res.status(200).json({
       data: variants,
     });
-
   } catch (error) {
-    console.error(
-      "Error fetching variants:",
-      error
-    );
+    console.error("Error fetching variants:", error);
 
     return res.status(500).json({
-      message:
-        "Server error while fetching variants.",
+      message: "Server error while fetching variants.",
     });
   }
 });
@@ -446,23 +435,27 @@ router.get("/ingredients", async (req, res) => {
     */
 
     const [ingredients] = await db.query(
-      `
-      SELECT
-        mi.id,
-        mi.ingredient_name,
-        mi.unit_id,
-        mi.cost_per_unit
-      FROM menu_subcategory_ingredients msi
+  `
+  SELECT
+    mi.id,
+    mi.ingredient_name,
+    mi.unit_id,
+    u.unit_name,
+    mi.cost_per_unit
+  FROM menu_subcategory_ingredients msi
 
-      INNER JOIN menu_ingredients mi
-        ON mi.id = msi.ingredient_id
+  INNER JOIN menu_ingredients mi
+    ON mi.id = msi.ingredient_id
 
-      WHERE msi.menu_subcategory_id = ?
+  LEFT JOIN unit u
+    ON u.id = mi.unit_id
 
-      ORDER BY mi.ingredient_name ASC
-      `,
-      [menu_subcategory_id]
-    );
+  WHERE msi.menu_subcategory_id = ?
+
+  ORDER BY mi.ingredient_name ASC
+  `,
+  [menu_subcategory_id]
+);
 
     return res.status(200).json({
       data: ingredients,
@@ -520,31 +513,47 @@ router.get("/ingredients", async (req, res) => {
 |--------------------------------------------------------------------------
 */
 
+/*
+|--------------------------------------------------------------------------
+| CREATE MENU PRICE
+|--------------------------------------------------------------------------
+|
+| POST /api/menu-varient
+|
+| Variant is OPTIONAL.
+|
+| menu_variant:
+|   id
+|   variant_name
+|
+| menu_price:
+|   id
+|   menu_subcategory_id
+|   variant_id NULL
+|   price
+|
+|--------------------------------------------------------------------------
+*/
+
 router.post("/", async (req, res) => {
+  let connection;
+
   try {
     const {
       menu_subcategory_id,
+      variant_id,
       varient_id,
       ingredients,
-      total_cost,
       price,
     } = req.body;
 
-    /*
-    |--------------------------------------------------------------
-    | Validation
-    |--------------------------------------------------------------
-    */
+    /* ---------------------------------------------------------
+       Validation
+    --------------------------------------------------------- */
 
     if (!menu_subcategory_id) {
       return res.status(400).json({
         message: "Menu item is required.",
-      });
-    }
-
-    if (!varient_id) {
-      return res.status(400).json({
-        message: "Variant is required.",
       });
     }
 
@@ -560,22 +569,18 @@ router.post("/", async (req, res) => {
       });
     }
 
-    /*
-    |--------------------------------------------------------------
-    | Check menu item
-    |--------------------------------------------------------------
-    */
+    /* ---------------------------------------------------------
+       Check menu item
+    --------------------------------------------------------- */
 
     const [menuItemRows] = await db.query(
       `
-      SELECT
-        id,
-        menu_category_id
+      SELECT id
       FROM menu_subcategory
       WHERE id = ?
       LIMIT 1
       `,
-      [menu_subcategory_id]
+      [Number(menu_subcategory_id)]
     );
 
     if (menuItemRows.length === 0) {
@@ -584,64 +589,80 @@ router.post("/", async (req, res) => {
       });
     }
 
-    /*
-    |--------------------------------------------------------------
-    | Check variant belongs to menu item
-    |--------------------------------------------------------------
-    */
+    /* ---------------------------------------------------------
+       Normalize variant ID
+    --------------------------------------------------------- */
 
-    const [variantRows] = await db.query(
-      `
-      SELECT
-        id,
-        menu_subcategory_id,
-        variant_name,
-        price
-      FROM menu_variant
-      WHERE id = ?
-      AND menu_subcategory_id = ?
-      LIMIT 1
-      `,
-      [
-        varient_id,
-        menu_subcategory_id,
-      ]
-    );
+    const selectedVariantId =
+      variant_id !== undefined
+        ? variant_id
+        : varient_id !== undefined
+          ? varient_id
+          : null;
 
-    if (variantRows.length === 0) {
-      return res.status(400).json({
-        message:
-          "Selected variant does not belong to the selected menu item.",
-      });
+    let finalVariantId = null;
+
+    /* ---------------------------------------------------------
+       Validate variant
+    --------------------------------------------------------- */
+
+    if (
+      selectedVariantId !== null &&
+      selectedVariantId !== undefined &&
+      selectedVariantId !== ""
+    ) {
+      if (
+        Number.isNaN(Number(selectedVariantId)) ||
+        Number(selectedVariantId) <= 0
+      ) {
+        return res.status(400).json({
+          message: "Invalid variant selected.",
+        });
+      }
+
+      const [variantRows] = await db.query(
+        `
+        SELECT id
+        FROM menu_variant
+        WHERE id = ?
+        LIMIT 1
+        `,
+        [Number(selectedVariantId)]
+      );
+
+      if (variantRows.length === 0) {
+        return res.status(400).json({
+          message: "Selected variant does not exist.",
+        });
+      }
+
+      finalVariantId = Number(selectedVariantId);
     }
 
-    /*
-    |--------------------------------------------------------------
-    | Validate ingredients
-    |--------------------------------------------------------------
-    */
+    /* ---------------------------------------------------------
+       Validate ingredients
+    --------------------------------------------------------- */
 
     if (
       !Array.isArray(ingredients) ||
       ingredients.length === 0
     ) {
       return res.status(400).json({
-        message:
-          "At least one ingredient is required.",
+        message: "At least one ingredient is required.",
       });
     }
 
-    /*
-    |--------------------------------------------------------------
-    | Validate ingredient IDs and quantities
-    |--------------------------------------------------------------
-    */
+    /* ---------------------------------------------------------
+       Validate ingredient IDs and quantities
+    --------------------------------------------------------- */
 
     for (const item of ingredients) {
-      if (!item.ingredient_id) {
+      if (
+        !item.ingredient_id ||
+        Number.isNaN(Number(item.ingredient_id))
+      ) {
         return res.status(400).json({
-          message:
-            "Invalid ingredient selected.",
+          message: "Invalid ingredient selected.",
         });
       }
 
@@ -659,11 +680,9 @@ router.post("/", async (req, res) => {
       }
     }
 
-    /*
-    |--------------------------------------------------------------
-    | Verify ingredients belong to this menu item
-    |--------------------------------------------------------------
-    */
+    /* ---------------------------------------------------------
+       Verify ingredients belong to selected menu item
+    --------------------------------------------------------- */
 
     for (const item of ingredients) {
       const [ingredientRows] = await db.query(
@@ -671,12 +690,12 @@ router.post("/", async (req, res) => {
         SELECT id
         FROM menu_subcategory_ingredients
         WHERE menu_subcategory_id = ?
-        AND ingredient_id = ?
+          AND ingredient_id = ?
         LIMIT 1
         `,
         [
-          menu_subcategory_id,
-          item.ingredient_id,
+          Number(menu_subcategory_id),
+          Number(item.ingredient_id),
         ]
       );
 
@@ -688,33 +707,9 @@ router.post("/", async (req, res) => {
       }
     }
 
-    /*
-    |--------------------------------------------------------------
-    | Update variant price
-    |--------------------------------------------------------------
-    */
-
-    await db.query(
-      `
-      UPDATE menu_variant
-      SET price = ?
-      WHERE id = ?
-      AND menu_subcategory_id = ?
-      `,
-      [
-        Number(price),
-        Number(varient_id),
-        Number(menu_subcategory_id),
-      ]
-    );
-
-    /*
-    |--------------------------------------------------------------
-    | Calculate total cost again on backend
-    |
-    | Never rely only on the frontend's total_cost.
-    |--------------------------------------------------------------
-    */
+    /* ---------------------------------------------------------
+       Calculate total ingredient cost
+    --------------------------------------------------------- */
 
     let calculatedTotalCost = 0;
 
@@ -726,30 +721,95 @@ router.post("/", async (req, res) => {
         WHERE id = ?
         LIMIT 1
         `,
-        [item.ingredient_id]
+        [Number(item.ingredient_id)]
       );
 
-      if (costRows.length > 0) {
-        calculatedTotalCost +=
-          Number(costRows[0].cost_per_unit || 0) *
-          Number(item.quantity);
+      if (costRows.length === 0) {
+        return res.status(400).json({
+          message:
+            `Ingredient ID ${item.ingredient_id} was not found.`,
+        });
       }
+
+      calculatedTotalCost +=
+        Number(costRows[0].cost_per_unit || 0) *
+        Number(item.quantity);
     }
 
-    /*
-    |--------------------------------------------------------------
-    | Response
-    |--------------------------------------------------------------
-    */
+    /* ---------------------------------------------------------
+       START TRANSACTION
+    --------------------------------------------------------- */
 
-    return res.status(200).json({
-      message:
-        "Menu variant updated successfully.",
+    connection = await db.getConnection();
 
-      variant_id: Number(varient_id),
+    await connection.beginTransaction();
+
+    /* ---------------------------------------------------------
+       Insert into menu_price
+    --------------------------------------------------------- */
+
+    const [priceResult] = await connection.query(
+      `
+      INSERT INTO menu_price (
+        menu_subcategory_id,
+        variant_id,
+        cost,
+        price
+      )
+      VALUES (?, ?, ?, ?)
+      `,
+      [
+        Number(menu_subcategory_id),
+        finalVariantId,
+        Number(calculatedTotalCost.toFixed(2)),
+        Number(price),
+      ]
+    );
+
+    const menuPriceId = priceResult.insertId;
+
+    /* ---------------------------------------------------------
+       Insert ingredients into menu_price_ingredients
+    --------------------------------------------------------- */
+
+    for (const item of ingredients) {
+      await connection.query(
+        `
+        INSERT INTO menu_price_ingredients (
+          menu_price_id,
+          menu_ingredient_id,
+          quantity
+        )
+        VALUES (?, ?, ?)
+        `,
+        [
+          menuPriceId,
+          Number(item.ingredient_id),
+          Number(item.quantity),
+        ]
+      );
+    }
+
+    /* ---------------------------------------------------------
+       Commit transaction
+    --------------------------------------------------------- */
+
+    await connection.commit();
+
+    /* ---------------------------------------------------------
+       Success response
+    --------------------------------------------------------- */
+
+    return res.status(201).json({
+      success: true,
+      message: "Menu price and ingredients created successfully.",
+
+      menu_price_id: menuPriceId,
 
       menu_subcategory_id:
         Number(menu_subcategory_id),
+
+      variant_id: finalVariantId,
 
       total_cost:
         Number(calculatedTotalCost.toFixed(2)),
@@ -759,15 +819,46 @@ router.post("/", async (req, res) => {
     });
 
   } catch (error) {
+
+    /* ---------------------------------------------------------
+       Rollback if something fails
+    --------------------------------------------------------- */
+
+    if (connection) {
+      try {
+        await connection.rollback();
+      } catch (rollbackError) {
+        console.error(
+          "Rollback error:",
+          rollbackError
+        );
+      }
+    }
+
     console.error(
-      "Error creating/updating menu variant:",
+      "Error creating menu price and ingredients:",
       error
     );
 
     return res.status(500).json({
+      success: false,
       message:
-        "Server error while saving menu variant.",
+        "Server error while saving menu price and ingredients.",
+      error:
+        process.env.NODE_ENV === "development"
+          ? error.message
+          : undefined,
     });
+
+  } finally {
+
+    /* ---------------------------------------------------------
+       Release database connection
+    --------------------------------------------------------- */
+
+    if (connection) {
+      connection.release();
+    }
   }
 });
 
