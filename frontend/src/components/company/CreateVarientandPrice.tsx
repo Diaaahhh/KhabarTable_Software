@@ -203,6 +203,11 @@ const CreateMenuVariant = () => {
    * Fetch Variants According To Menu Item
    * --------------------------------------------------------------------------
    */
+  /*
+   * --------------------------------------------------------------------------
+   * Fetch Variants According To Menu Item and Category
+   * --------------------------------------------------------------------------
+   */
   const fetchVariants = async (selectedMenuItemId: string) => {
     if (!selectedMenuItemId) {
       setVariants([]);
@@ -213,7 +218,7 @@ const CreateMenuVariant = () => {
       setLoadingVariants(true);
 
       const response = await fetch(
-        `${API_BASE_URL}/api/menu-varient/variants?menu_subcategory_id=${selectedMenuItemId}`,
+        `${API_BASE_URL}/api/menu-varient/variants?menu_subcategory_id=${selectedMenuItemId}&category_id=${categoryId}`,
         {
           credentials: "include",
         },

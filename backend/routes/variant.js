@@ -195,9 +195,13 @@ router.get("/menu-items", async (req, res) => {
  *|--------------------------------------------------------------------------
  *| GET /api/menu-varient/variants?menu_subcategory_id=5
  */
+/**
+ * GET VARIANTS BY MENU ITEM & CATEGORY
+ * GET /api/menu-varient/variants?menu_subcategory_id=5&category_id=1
+ */
 router.get("/variants", async (req, res) => {
   try {
-    const { menu_subcategory_id } = req.query;
+    const { menu_subcategory_id, category_id } = req.query;
 
     if (!menu_subcategory_id) {
       return res.status(400).json({
@@ -205,28 +209,46 @@ router.get("/variants", async (req, res) => {
       });
     }
 
-    const [menuItemRows] = await db.query(
-      `
-      SELECT id
-      FROM menu_subcategory
-      WHERE id = ?
-      LIMIT 1
-      `,
-      [menu_subcategory_id]
-    );
+    // Check category name to determine table
+    let categoryName = "";
 
-    if (menuItemRows.length === 0) {
-      return res.status(404).json({
-        message: "Menu item not found.",
-      });
+    if (category_id) {
+      const [categoryRows] = await db.query(
+        `SELECT category_name FROM menu_category WHERE id = ? LIMIT 1`,
+        [category_id]
+      );
+      if (categoryRows.length > 0) {
+        categoryName = categoryRows[0].category_name;
+      }
+    } else {
+      // Fallback: look up category name via subcategory
+      const [subcategoryRows] = await db.query(
+        `
+        SELECT mc.category_name 
+        FROM menu_subcategory ms
+        JOIN menu_category mc ON ms.menu_category_id = mc.id
+        WHERE ms.id = ?
+        LIMIT 1
+        `,
+        [menu_subcategory_id]
+      );
+      if (subcategoryRows.length > 0) {
+        categoryName = subcategoryRows[0].category_name;
+      }
     }
+
+    // Determine target table dynamically
+    const variantTable =
+      categoryName.trim().toLowerCase() === "pizza"
+        ? "menu_variant_pizza"
+        : "menu_variant";
 
     const [variants] = await db.query(
       `
       SELECT
         id,
         variant_name
-      FROM menu_variant
+      FROM ${variantTable}
       ORDER BY variant_name ASC
       `
     );
