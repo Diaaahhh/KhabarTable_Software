@@ -398,4 +398,380 @@ router.post("/:branchId/permissions", async (req, res) => {
   }
 });
 
+// =========================================================
+// GET SINGLE BRANCH
+// GET /api/branches/:branchId
+// =========================================================
+
+router.get("/:branchId", async (req, res) => {
+  try {
+    // ---------------------------------------------------------
+    // Get logged-in user
+    // ---------------------------------------------------------
+
+    const user = getUserFromCookie(req);
+
+    if (!user) {
+      return res.status(401).json({
+        success: false,
+        message: "User authentication cookie not found.",
+      });
+    }
+
+    // ---------------------------------------------------------
+    // Validate branch ID
+    // ---------------------------------------------------------
+
+    const branchId = Number(req.params.branchId);
+
+    if (!Number.isInteger(branchId) || branchId <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid branch ID.",
+      });
+    }
+
+    // ---------------------------------------------------------
+    // Fetch branch
+    //
+    // Branches are stored in users table with role = 4.
+    // Only allow branches belonging to the logged-in user's
+    // company.
+    // ---------------------------------------------------------
+
+    const [branchRows] = await db.query(
+      `
+      SELECT
+        b.id,
+        b.company_id,
+        b.company_name AS branch_name,
+        b.phone,
+        b.email,
+        b.address,
+        b.logo,
+        b.expiry_date,
+        b.created_at,
+        b.updated_at
+      FROM users AS b
+      WHERE b.id = ?
+        AND b.company_id = ?
+        AND b.role = 4
+      LIMIT 1
+      `,
+      [branchId, user.company_id]
+    );
+
+    // ---------------------------------------------------------
+    // Branch not found
+    // ---------------------------------------------------------
+
+    if (branchRows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "Branch not found.",
+      });
+    }
+
+    // ---------------------------------------------------------
+    // Return branch
+    // ---------------------------------------------------------
+
+    return res.status(200).json({
+      success: true,
+      branch: branchRows[0],
+    });
+  } catch (error) {
+    console.error("Fetch single branch error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Server error while fetching branch.",
+      error: error.message,
+    });
+  }
+});
+
+// =========================================================
+// UPDATE BRANCH
+// PUT /api/branches/:branchId
+// =========================================================
+
+router.put("/:branchId", async (req, res) => {
+  try {
+    // Get logged-in user
+    const user = getUserFromCookie(req);
+
+    if (!user) {
+      return res.status(401).json({
+        success: false,
+        message: "User authentication cookie not found.",
+      });
+    }
+
+    const branchId = Number(req.params.branchId);
+
+    if (!Number.isInteger(branchId) || branchId <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid branch ID.",
+      });
+    }
+
+    const {
+      branch_name,
+      phone,
+      email,
+      address,
+      expiry_date,
+    } = req.body;
+
+    // ---------------------------------------------------------
+    // Validate required fields
+    // ---------------------------------------------------------
+
+    if (!branch_name || !branch_name.trim()) {
+      return res.status(400).json({
+        success: false,
+        message: "Branch name is required.",
+      });
+    }
+
+    // ---------------------------------------------------------
+    // Check that branch belongs to logged-in user's company
+    // and is actually a branch
+    // ---------------------------------------------------------
+
+    const [branchRows] = await db.query(
+      `
+      SELECT id
+      FROM users
+      WHERE id = ?
+        AND company_id = ?
+        AND role = 4
+      LIMIT 1
+      `,
+      [branchId, user.company_id]
+    );
+
+    if (branchRows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "Branch not found.",
+      });
+    }
+
+    // ---------------------------------------------------------
+    // Check duplicate email
+    // ---------------------------------------------------------
+
+    if (email && email.trim()) {
+      const [emailRows] = await db.query(
+        `
+        SELECT id
+        FROM users
+        WHERE email = ?
+          AND id != ?
+        LIMIT 1
+        `,
+        [email.trim(), branchId]
+      );
+
+      if (emailRows.length > 0) {
+        return res.status(409).json({
+          success: false,
+          message: "This email is already used by another user.",
+        });
+      }
+    }
+
+    // ---------------------------------------------------------
+    // Update branch
+    // ---------------------------------------------------------
+
+    await db.query(
+      `
+      UPDATE users
+      SET
+        company_name = ?,
+        phone = ?,
+        email = ?,
+        address = ?,
+        expiry_date = ?
+      WHERE id = ?
+        AND company_id = ?
+        AND role = 4
+      `,
+      [
+        branch_name.trim(),
+        phone ? phone.trim() : null,
+        email ? email.trim() : null,
+        address ? address.trim() : null,
+        expiry_date || null,
+        branchId,
+        user.company_id,
+      ]
+    );
+
+    // ---------------------------------------------------------
+    // Get updated branch
+    // ---------------------------------------------------------
+
+    const [updatedRows] = await db.query(
+      `
+      SELECT
+        b.id,
+        b.company_id,
+        b.company_name AS branch_name,
+        b.phone,
+        b.email,
+        b.address,
+        b.logo,
+        b.expiry_date,
+        creator.email AS created_by,
+        b.created_at,
+        b.updated_at
+      FROM users AS b
+      LEFT JOIN users AS creator
+        ON creator.id = b.created_by
+      WHERE b.id = ?
+        AND b.company_id = ?
+        AND b.role = 4
+      LIMIT 1
+      `,
+      [branchId, user.company_id]
+    );
+
+    return res.status(200).json({
+      success: true,
+      message: "Branch updated successfully.",
+      branch: updatedRows[0],
+    });
+  } catch (error) {
+    console.error("Update branch error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Server error while updating branch.",
+      error: error.message,
+    });
+  }
+});
+
+
+// =========================================================
+// DELETE BRANCH
+// DELETE /api/branches/:branchId
+// =========================================================
+
+router.delete("/:branchId", async (req, res) => {
+  let connection;
+
+  try {
+    // Get logged-in user
+    const user = getUserFromCookie(req);
+
+    if (!user) {
+      return res.status(401).json({
+        success: false,
+        message: "User authentication cookie not found.",
+      });
+    }
+
+    const branchId = Number(req.params.branchId);
+
+    if (!Number.isInteger(branchId) || branchId <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid branch ID.",
+      });
+    }
+
+    // ---------------------------------------------------------
+    // Check that branch belongs to logged-in user's company
+    // ---------------------------------------------------------
+
+    const [branchRows] = await db.query(
+      `
+      SELECT
+        id,
+        company_id,
+        company_name
+      FROM users
+      WHERE id = ?
+        AND company_id = ?
+        AND role = 4
+      LIMIT 1
+      `,
+      [branchId, user.company_id]
+    );
+
+    if (branchRows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "Branch not found.",
+      });
+    }
+
+    const branch = branchRows[0];
+
+    // ---------------------------------------------------------
+    // Start transaction
+    // ---------------------------------------------------------
+
+    connection = await db.getConnection();
+
+    await connection.beginTransaction();
+
+    // ---------------------------------------------------------
+    // Delete branch permissions first
+    // ---------------------------------------------------------
+
+    await connection.query(
+      `
+      DELETE FROM user_user_menu
+      WHERE user_id = ?
+      `,
+      [branchId]
+    );
+
+    // ---------------------------------------------------------
+    // Delete branch
+    // ---------------------------------------------------------
+
+    await connection.query(
+      `
+      DELETE FROM users
+      WHERE id = ?
+        AND company_id = ?
+        AND role = 4
+      `,
+      [branchId, user.company_id]
+    );
+
+    await connection.commit();
+
+    return res.status(200).json({
+      success: true,
+      message: "Branch deleted successfully.",
+      branch_id: branchId,
+      branch_name: branch.company_name,
+    });
+  } catch (error) {
+    if (connection) {
+      await connection.rollback();
+    }
+
+    console.error("Delete branch error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Server error while deleting branch.",
+      error: error.message,
+    });
+  } finally {
+    if (connection) {
+      connection.release();
+    }
+  }
+});
 export default router;

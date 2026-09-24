@@ -14,7 +14,7 @@ interface MenuCategory {
 
 interface MenuItem {
   id: number;
-  menu_name: string;ingred
+  menu_name: string;
   menu_category_id: number;
 }
 
@@ -31,28 +31,84 @@ interface Ingredient {
   cost_per_unit: number;
 }
 
-interface SelectedIngredient {
-  ingredientId: number;
-  quantity: string;
+interface VariantPrice {
+  variantId: number;
+  price: string;
 }
 
 const CreateMenuVariant = () => {
   const [categoryId, setCategoryId] = useState("");
   const [menuItemId, setMenuItemId] = useState("");
-  const [variantId, setVariantId] = useState("");
-  const [price, setPrice] = useState("");
 
+  /*
+   * --------------------------------------------------------------------------
+   * Selected Variants
+   * --------------------------------------------------------------------------
+   */
+  const [selectedVariantIds, setSelectedVariantIds] = useState<number[]>([]);
+
+  /*
+   * --------------------------------------------------------------------------
+   * sell Price Per Variant
+   * --------------------------------------------------------------------------
+   */
+  const [variantPrices, setVariantPrices] = useState<VariantPrice[]>([]);
+
+  /*
+   * --------------------------------------------------------------------------
+   * Data
+   * --------------------------------------------------------------------------
+   */
   const [categories, setCategories] = useState<MenuCategory[]>([]);
   const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
   const [variants, setVariants] = useState<Variant[]>([]);
+
+  /*
+   * IMPORTANT:
+   * ingredientList now contains ALL ingredients allocated to
+   * the selected submenu/menu item.
+   *
+   * There is no ingredient selection anymore.
+   */
   const [ingredientList, setIngredientList] = useState<Ingredient[]>([]);
 
-  const [selectedIngredients, setSelectedIngredients] = useState<
-    SelectedIngredient[]
-  >([]);
+  /*
+   * --------------------------------------------------------------------------
+   * Ingredient Quantities
+   * --------------------------------------------------------------------------
+   *
+   * Structure:
+   *
+   * {
+   *   ingredientId: {
+   *     variantId: "quantity"
+   *   }
+   * }
+   *
+   * Example:
+   *
+   * {
+   *   1: {
+   *     6: "100",
+   *     9: "150"
+   *   },
+   *   2: {
+   *     6: "50",
+   *     9: "75"
+   *   }
+   * }
+   */
+  const [ingredientQuantities, setIngredientQuantities] = useState<
+    Record<number, Record<number, string>>
+  >({});
 
-  const [showIngredients, setShowIngredients] = useState(false);
+  const [showVariants, setShowVariants] = useState(false);
 
+  /*
+   * --------------------------------------------------------------------------
+   * Loading States
+   * --------------------------------------------------------------------------
+   */
   const [loadingCategories, setLoadingCategories] = useState(true);
   const [loadingMenuItems, setLoadingMenuItems] = useState(false);
   const [loadingVariants, setLoadingVariants] = useState(false);
@@ -60,11 +116,10 @@ const CreateMenuVariant = () => {
   const [submitting, setSubmitting] = useState(false);
 
   /*
-  |--------------------------------------------------------------------------
-  | Fetch Categories
-  |--------------------------------------------------------------------------
-  */
-
+   * --------------------------------------------------------------------------
+   * Fetch Categories
+   * --------------------------------------------------------------------------
+   */
   const fetchCategories = async () => {
     try {
       setLoadingCategories(true);
@@ -99,11 +154,10 @@ const CreateMenuVariant = () => {
   };
 
   /*
-  |--------------------------------------------------------------------------
-  | Fetch Menu Items According To Category
-  |--------------------------------------------------------------------------
-  */
-
+   * --------------------------------------------------------------------------
+   * Fetch Menu Items According To Category
+   * --------------------------------------------------------------------------
+   */
   const fetchMenuItems = async (selectedCategoryId: string) => {
     if (!selectedCategoryId) {
       setMenuItems([]);
@@ -145,11 +199,10 @@ const CreateMenuVariant = () => {
   };
 
   /*
-  |--------------------------------------------------------------------------
-  | Fetch Variants According To Menu Item
-  |--------------------------------------------------------------------------
-  */
-
+   * --------------------------------------------------------------------------
+   * Fetch Variants According To Menu Item
+   * --------------------------------------------------------------------------
+   */
   const fetchVariants = async (selectedMenuItemId: string) => {
     if (!selectedMenuItemId) {
       setVariants([]);
@@ -191,11 +244,20 @@ const CreateMenuVariant = () => {
   };
 
   /*
-  |--------------------------------------------------------------------------
-  | Fetch Ingredients According To Menu Item
-  |--------------------------------------------------------------------------
-  */
-
+   * --------------------------------------------------------------------------
+   * Fetch ALL Allocated Ingredients According To Menu Item
+   * --------------------------------------------------------------------------
+   *
+   * IMPORTANT:
+   *
+   * The backend endpoint should return only the ingredients that are
+   * allocated to this particular submenu/menu item.
+   *
+   * Example:
+   *
+   * /api/menu-varient/ingredients?menu_subcategory_id=123
+   *
+   */
   const fetchIngredients = async (selectedMenuItemId: string) => {
     if (!selectedMenuItemId) {
       setIngredientList([]);
@@ -218,6 +280,10 @@ const CreateMenuVariant = () => {
         throw new Error(data.message || "Failed to fetch ingredients.");
       }
 
+      /*
+       * These are automatically used in the pricing table.
+       * No checkbox/selection is required.
+       */
       setIngredientList(data.data || []);
     } catch (error) {
       console.error("Error fetching ingredients:", error);
@@ -239,34 +305,69 @@ const CreateMenuVariant = () => {
   };
 
   /*
-  |--------------------------------------------------------------------------
-  | Initial Category Loading
-  |--------------------------------------------------------------------------
-  */
-
+   * --------------------------------------------------------------------------
+   * Initial Category Loading
+   * --------------------------------------------------------------------------
+   */
   useEffect(() => {
     fetchCategories();
   }, []);
 
   /*
-  |--------------------------------------------------------------------------
-  | Category Change
-  |--------------------------------------------------------------------------
-  */
+   * --------------------------------------------------------------------------
+   * Keep Ingredient Quantity Matrix In Sync
+   * --------------------------------------------------------------------------
+   *
+   * Whenever ingredients or variants change, make sure every combination
+   * has a quantity field.
+   *
+   * This means:
+   *
+   * Ingredient 1 + Variant 6
+   * Ingredient 1 + Variant 9
+   * Ingredient 2 + Variant 6
+   * Ingredient 2 + Variant 9
+   *
+   * etc.
+   */
+  useEffect(() => {
+    setIngredientQuantities((previous) => {
+      const updated: Record<number, Record<number, string>> = {};
 
+      ingredientList.forEach((ingredient) => {
+        updated[ingredient.id] = {};
+
+        selectedVariantIds.forEach((variantId) => {
+          updated[ingredient.id][variantId] =
+            previous[ingredient.id]?.[variantId] || "";
+        });
+      });
+
+      return updated;
+    });
+  }, [ingredientList, selectedVariantIds]);
+
+  /*
+   * --------------------------------------------------------------------------
+   * Category Change
+   * --------------------------------------------------------------------------
+   */
   const handleCategoryChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const value = e.target.value;
 
     setCategoryId(value);
 
-    // Reset dependent fields
+    /*
+     * Reset dependent fields.
+     */
     setMenuItemId("");
-    setVariantId("");
+    setSelectedVariantIds([]);
+    setVariantPrices([]);
     setMenuItems([]);
     setVariants([]);
     setIngredientList([]);
-    setSelectedIngredients([]);
-    setShowIngredients(false);
+    setIngredientQuantities({});
+    setShowVariants(false);
 
     if (value) {
       fetchMenuItems(value);
@@ -274,73 +375,165 @@ const CreateMenuVariant = () => {
   };
 
   /*
-  |--------------------------------------------------------------------------
-  | Menu Item Change
-  |--------------------------------------------------------------------------
-  */
-
+   * --------------------------------------------------------------------------
+   * Menu Item Change
+   * --------------------------------------------------------------------------
+   *
+   * As soon as the submenu/menu item is selected:
+   *
+   * 1. Fetch variants
+   * 2. Fetch ALL allocated ingredients
+   *
+   * Both requests run immediately.
+   */
   const handleMenuItemChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const value = e.target.value;
 
     setMenuItemId(value);
 
-    // Reset dependent fields
-    setVariantId("");
+    /*
+     * Reset dependent fields.
+     */
+    setSelectedVariantIds([]);
+    setVariantPrices([]);
     setVariants([]);
     setIngredientList([]);
-    setSelectedIngredients([]);
-    setShowIngredients(false);
+    setIngredientQuantities({});
+    setShowVariants(false);
 
     if (value) {
+      /*
+       * Fetch both independently.
+       * They can run at the same time.
+       */
       fetchVariants(value);
       fetchIngredients(value);
     }
   };
 
   /*
-  |--------------------------------------------------------------------------
-  | Ingredient Checkbox
-  |--------------------------------------------------------------------------
-  */
-
-  const handleIngredientChange = (ingredientId: number) => {
-    setSelectedIngredients((previous) => {
-      const exists = previous.some(
-        (item) => item.ingredientId === ingredientId,
-      );
+   * --------------------------------------------------------------------------
+   * Variant Selection
+   * --------------------------------------------------------------------------
+   */
+  const handleVariantChange = (variantId: number) => {
+    setSelectedVariantIds((previous) => {
+      const exists = previous.includes(variantId);
 
       if (exists) {
-        return previous.filter((item) => item.ingredientId !== ingredientId);
+        /*
+         * Remove variant price.
+         */
+        setVariantPrices((prices) =>
+          prices.filter((item) => item.variantId !== variantId),
+        );
+
+        return previous.filter((id) => id !== variantId);
       }
 
-      return [
-        ...previous,
+      /*
+       * Add variant with empty sell price.
+       */
+      setVariantPrices((prices) => [
+        ...prices,
         {
-          ingredientId,
-          quantity: "",
+          variantId,
+          price: "",
         },
-      ];
+      ]);
+
+      return [...previous, variantId];
     });
   };
 
   /*
-  |--------------------------------------------------------------------------
-  | Quantity Change
-  |--------------------------------------------------------------------------
-  */
-
-  const handleQuantityChange = (ingredientId: number, quantity: string) => {
-    // Only numbers and decimal point
-    if (!/^\d*\.?\d*$/.test(quantity)) {
+   * --------------------------------------------------------------------------
+   * Select / Unselect All Variants
+   * --------------------------------------------------------------------------
+   */
+  const handleSelectAllVariants = () => {
+    /*
+     * If everything is already selected,
+     * remove everything.
+     */
+    if (selectedVariantIds.length === variants.length && variants.length > 0) {
+      setSelectedVariantIds([]);
+      setVariantPrices([]);
       return;
     }
 
-    setSelectedIngredients((previous) =>
+    /*
+     * Select all variants.
+     */
+    const allIds = variants.map((variant) => variant.id);
+
+    setSelectedVariantIds(allIds);
+
+    setVariantPrices(
+      allIds.map((variantId) => ({
+        variantId,
+        price: "",
+      })),
+    );
+  };
+
+  /*
+   * --------------------------------------------------------------------------
+   * Quantity Change
+   * --------------------------------------------------------------------------
+   */
+  const handleQuantityChange = (
+    ingredientId: number,
+    variantId: number,
+    quantity: string,
+  ) => {
+    /*
+     * Allow:
+     *
+     * 10
+     * 10.
+     * 10.5
+     * empty string
+     */
+    if (quantity !== "" && !/^\d*\.?\d*$/.test(quantity)) {
+      return;
+    }
+
+    setIngredientQuantities((previous) => ({
+      ...previous,
+
+      [ingredientId]: {
+        ...(previous[ingredientId] || {}),
+        [variantId]: quantity,
+      },
+    }));
+  };
+
+  /*
+   * --------------------------------------------------------------------------
+   * Get Quantity
+   * --------------------------------------------------------------------------
+   */
+  const getIngredientQuantity = (ingredientId: number, variantId: number) => {
+    return ingredientQuantities[ingredientId]?.[variantId] || "";
+  };
+
+  /*
+   * --------------------------------------------------------------------------
+   * sell Price Change
+   * --------------------------------------------------------------------------
+   */
+  const handlePriceChange = (variantId: number, price: string) => {
+    if (price !== "" && !/^\d*\.?\d*$/.test(price)) {
+      return;
+    }
+
+    setVariantPrices((previous) =>
       previous.map((item) =>
-        item.ingredientId === ingredientId
+        item.variantId === variantId
           ? {
               ...item,
-              quantity,
+              price,
             }
           : item,
       ),
@@ -348,11 +541,10 @@ const CreateMenuVariant = () => {
   };
 
   /*
-  |--------------------------------------------------------------------------
-  | Calculate Individual Cost
-  |--------------------------------------------------------------------------
-  */
-
+   * --------------------------------------------------------------------------
+   * Get Ingredient Cost
+   * --------------------------------------------------------------------------
+   */
   const getIngredientCost = (ingredientId: number, quantity: string) => {
     const ingredient = ingredientList.find((item) => item.id === ingredientId);
 
@@ -364,28 +556,59 @@ const CreateMenuVariant = () => {
   };
 
   /*
-  |--------------------------------------------------------------------------
-  | Calculate Total Cost
-  |--------------------------------------------------------------------------
-  */
+   * --------------------------------------------------------------------------
+   * Calculate Total Cost For One Variant
+   * --------------------------------------------------------------------------
+   *
+   * IMPORTANT:
+   * Now we loop through ALL allocated ingredients.
+   */
+  const getVariantTotalCost = (variantId: number) => {
+    return ingredientList.reduce((total, ingredient) => {
+      const quantity = getIngredientQuantity(ingredient.id, variantId);
 
-  const totalCost = useMemo(() => {
-    return selectedIngredients.reduce(
-      (total, selected) =>
-        total + getIngredientCost(selected.ingredientId, selected.quantity),
-      0,
-    );
-  }, [selectedIngredients, ingredientList]);
+      return total + getIngredientCost(ingredient.id, quantity);
+    }, 0);
+  };
 
   /*
-  |--------------------------------------------------------------------------
-  | Submit
-  |--------------------------------------------------------------------------
-  */
+   * --------------------------------------------------------------------------
+   * Variant sell Price
+   * --------------------------------------------------------------------------
+   */
+  const getVariantPrice = (variantId: number) => {
+    return (
+      variantPrices.find((item) => item.variantId === variantId)?.price || ""
+    );
+  };
 
+  /*
+   * --------------------------------------------------------------------------
+   * Variant Profit
+   * --------------------------------------------------------------------------
+   */
+  const getVariantProfit = (variantId: number) => {
+    const cost = getVariantTotalCost(variantId);
+    const price = Number(getVariantPrice(variantId));
+
+    if (!price) {
+      return 0;
+    }
+
+    return price - cost;
+  };
+
+  /*
+   * --------------------------------------------------------------------------
+   * Submit
+   * --------------------------------------------------------------------------
+   */
   const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
 
+    /*
+     * Category validation
+     */
     if (!categoryId) {
       Swal.fire({
         icon: "warning",
@@ -396,6 +619,9 @@ const CreateMenuVariant = () => {
       return;
     }
 
+    /*
+     * Menu item validation
+     */
     if (!menuItemId) {
       Swal.fire({
         icon: "warning",
@@ -406,63 +632,183 @@ const CreateMenuVariant = () => {
       return;
     }
 
-    if (selectedIngredients.length === 0) {
+    /*
+     * Variant validation
+     */
+    if (selectedVariantIds.length === 0) {
       Swal.fire({
         icon: "warning",
-        title: "Ingredients Required",
-        text: "Please select at least one ingredient.",
+        title: "Variant Required",
+        text: "Please select at least one variant.",
         confirmButtonColor: "#7d1119",
       });
       return;
     }
 
-    const invalidQuantity = selectedIngredients.some(
-      (item) => !item.quantity || Number(item.quantity) <= 0,
-    );
-
-    if (invalidQuantity) {
+    /*
+     * ------------------------------------------------------------------------
+     * Ingredient validation
+     * ------------------------------------------------------------------------
+     *
+     * Ingredients are no longer selected manually.
+     *
+     * They are automatically loaded from the submenu.
+     */
+    if (ingredientList.length === 0) {
       Swal.fire({
         icon: "warning",
-        title: "Quantity Required",
-        text: "Please enter a valid quantity for every selected ingredient.",
+        title: "No Ingredients Found",
+        text: "No ingredients are allocated to this submenu.",
         confirmButtonColor: "#7d1119",
       });
       return;
     }
 
-    if (!price || Number(price) <= 0) {
-      Swal.fire({
-        icon: "warning",
-        title: "Price Required",
-        text: "Please enter a valid selling price.",
-        confirmButtonColor: "#7d1119",
-      });
-      return;
+    /*
+     * ------------------------------------------------------------------------
+     * Validate Quantities
+     * ------------------------------------------------------------------------
+     *
+     * Every allocated ingredient must have a quantity
+     * for every selected variant.
+     */
+    for (const ingredient of ingredientList) {
+      for (const variantId of selectedVariantIds) {
+        const quantity = getIngredientQuantity(ingredient.id, variantId);
+
+        if (!quantity || Number(quantity) <= 0) {
+          const variant = variants.find((item) => item.id === variantId);
+
+          Swal.fire({
+            icon: "warning",
+            title: "Quantity Required",
+            text: `Please enter a valid quantity for ${ingredient.ingredient_name} under variant ${
+              variant?.variant_name || variantId
+            }.`,
+            confirmButtonColor: "#7d1119",
+          });
+
+          return;
+        }
+      }
+    }
+
+    /*
+     * ------------------------------------------------------------------------
+     * Validate Prices
+     * ------------------------------------------------------------------------
+     */
+    for (const variantId of selectedVariantIds) {
+      const price = getVariantPrice(variantId);
+
+      if (!price || Number(price) <= 0) {
+        const variant = variants.find((item) => item.id === variantId);
+
+        Swal.fire({
+          icon: "warning",
+          title: "Sell Price Required",
+          text: `Please enter a valid sell price for ${
+            variant?.variant_name || "variant"
+          }.`,
+          confirmButtonColor: "#7d1119",
+        });
+
+        return;
+      }
     }
 
     try {
       setSubmitting(true);
 
+      /*
+       * ----------------------------------------------------------------------
+       * Prepare Variant Data
+       * ----------------------------------------------------------------------
+       *
+       * Every variant receives ALL allocated ingredients.
+       */
+      const variantData = selectedVariantIds.map((variantId) => {
+        const variant = variants.find((item) => item.id === variantId);
+
+        return {
+          variant_id: variantId,
+
+          variant_name: variant?.variant_name || "",
+
+          buy_cost: Number(getVariantTotalCost(variantId).toFixed(2)),
+
+          sell_price: Number(getVariantPrice(variantId)),
+
+          profit: Number(getVariantProfit(variantId).toFixed(2)),
+
+          /*
+           * ALL allocated ingredients.
+           */
+          ingredients: ingredientList.map((ingredient) => {
+            const quantity = Number(
+              getIngredientQuantity(ingredient.id, variantId),
+            );
+
+            const cost = Number(
+              getIngredientCost(
+                ingredient.id,
+                getIngredientQuantity(ingredient.id, variantId),
+              ).toFixed(2),
+            );
+
+            return {
+              ingredient_id: ingredient.id,
+
+              ingredient_name: ingredient.ingredient_name,
+
+              unit_id: ingredient.unit_id || null,
+
+              unit_name: ingredient.unit_name || "",
+
+              quantity,
+
+              cost_per_unit: Number(ingredient.cost_per_unit || 0),
+
+              cost,
+            };
+          }),
+        };
+      });
+
+      /*
+       * ----------------------------------------------------------------------
+       * Combined Total Cost
+       * ----------------------------------------------------------------------
+       */
+      const totalCost = selectedVariantIds.reduce(
+        (total, variantId) => total + getVariantTotalCost(variantId),
+        0,
+      );
+
+      /*
+       * ----------------------------------------------------------------------
+       * API Request
+       * ----------------------------------------------------------------------
+       */
       const response = await fetch(`${API_BASE_URL}/api/menu-varient`, {
         method: "POST",
         credentials: "include",
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({
-          menu_subcategory_id: Number(menuItemId),
 
-          variant_id: variantId ? Number(variantId) : null,
-
-          ingredients: selectedIngredients.map((item) => ({
-            ingredient_id: item.ingredientId,
-            quantity: Number(item.quantity),
+        body: JSON.stringify(
+          variantData.map((item) => ({
+            menu_subcategory_id: Number(menuItemId),
+            variant_id: item.variant_id,
+            price: item.sell_price,
+            profit: item.profit, // Pass the calculated profit value
+            ingredients: item.ingredients.map((ing) => ({
+              ingredient_id: ing.ingredient_id,
+              quantity: ing.quantity,
+            })),
           })),
-
-          total_cost: totalCost,
-
-          price: Number(price),
-        }),
+        ),
       });
 
       const data = await response.json();
@@ -471,6 +817,9 @@ const CreateMenuVariant = () => {
         throw new Error(data.message || "Failed to create menu variant.");
       }
 
+      /*
+       * Success message
+       */
       Swal.fire({
         icon: "success",
         title: "Created Successfully",
@@ -478,16 +827,20 @@ const CreateMenuVariant = () => {
         confirmButtonColor: "#7d1119",
       });
 
-      // Reset form
+      /*
+       * ----------------------------------------------------------------------
+       * Reset Form
+       * ----------------------------------------------------------------------
+       */
       setCategoryId("");
       setMenuItemId("");
-      setVariantId("");
-      setPrice("");
+      setSelectedVariantIds([]);
+      setVariantPrices([]);
       setMenuItems([]);
       setVariants([]);
       setIngredientList([]);
-      setSelectedIngredients([]);
-      setShowIngredients(false);
+      setIngredientQuantities({});
+      setShowVariants(false);
     } catch (error) {
       console.error("Error creating menu variant:", error);
 
@@ -502,27 +855,42 @@ const CreateMenuVariant = () => {
     }
   };
 
+  /*
+   * --------------------------------------------------------------------------
+   * Selected Variant Objects
+   * --------------------------------------------------------------------------
+   */
+  const selectedVariantObjects = useMemo(() => {
+    return variants.filter((variant) =>
+      selectedVariantIds.includes(variant.id),
+    );
+  }, [variants, selectedVariantIds]);
+
   return (
     <div className="min-h-screen bg-[var(--surface-dark)] p-4 md:p-6">
-      <div className="mx-auto max-w-6xl">
+      <div className="mx-auto max-w-[1500px]">
         {/* Page Header */}
+
         <div className="mb-6">
           <h1 className="text-2xl font-bold text-[var(--text-primary)]">
             Create Menu Variant
           </h1>
 
           <p className="mt-1 text-sm text-[var(--text-secondary)]">
-            Create a menu variant with ingredients, quantity, cost and selling
-            price.
+            Create menu variants with allocated ingredients, quantity, cost,
+            selling price and profit.
           </p>
         </div>
 
         {/* Form Card */}
+
         <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-5 shadow-sm">
           <form onSubmit={handleSubmit}>
             {/* Category + Menu Item */}
+
             <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
               {/* Category */}
+
               <div>
                 <label
                   htmlFor="category"
@@ -554,6 +922,7 @@ const CreateMenuVariant = () => {
               </div>
 
               {/* Menu Item */}
+
               <div>
                 <label
                   htmlFor="menuItem"
@@ -585,101 +954,96 @@ const CreateMenuVariant = () => {
                   ))}
                 </select>
               </div>
-
-              {/* Variant */}
-              <div>
-                <label
-                  htmlFor="variant"
-                  className="mb-2 block text-sm font-medium text-[var(--text-primary)]"
-                >
-                  Variant
-                </label>
-
-                <select
-                  id="variant"
-                  value={variantId}
-                  onChange={(e) => setVariantId(e.target.value)}
-                  disabled={!menuItemId || loadingVariants || submitting}
-                  className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-4 py-2.5 text-sm text-[var(--text-primary)] outline-none focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary)]/20 disabled:cursor-not-allowed disabled:bg-[var(--surface-grey)]"
-                >
-                  <option value="">
-                    {loadingVariants
-                      ? "Loading variants..."
-                      : !menuItemId
-                        ? "Choose menu item first"
-                        : "Choose variant"}
-                  </option>
-
-                  {variants.map((variant) => (
-                    <option key={variant.id} value={variant.id}>
-                      {variant.variant_name}
-                    </option>
-                  ))}
-                </select>
-              </div>
             </div>
 
-            {/* Ingredients */}
+            {/* Allocated Ingredient Loading Status */}
+
+            {menuItemId && loadingIngredients && (
+              <div className="mt-4 flex items-center gap-2 text-sm text-[var(--text-secondary)]">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Loading allocated ingredients...
+              </div>
+            )}
+
+            {/* Multiple Variants */}
+
             <div className="mt-5">
               <label className="mb-2 block text-sm font-medium text-[var(--text-primary)]">
-                Ingredients
+                Variants
                 <span className="ml-1 text-[var(--danger)]">*</span>
               </label>
 
               <button
                 type="button"
-                onClick={() => setShowIngredients(!showIngredients)}
-                disabled={!menuItemId || loadingIngredients || submitting}
+                onClick={() => setShowVariants(!showVariants)}
+                disabled={!menuItemId || loadingVariants || submitting}
                 className="flex w-full items-center justify-between rounded-lg border border-[var(--border)] bg-[var(--surface)] px-4 py-2.5 text-sm text-[var(--text-primary)] disabled:cursor-not-allowed disabled:bg-[var(--surface-grey)]"
               >
                 <span>
-                  {loadingIngredients
-                    ? "Loading ingredients..."
-                    : selectedIngredients.length === 0
+                  {loadingVariants
+                    ? "Loading variants..."
+                    : selectedVariantIds.length === 0
                       ? !menuItemId
                         ? "Choose menu item first"
-                        : "Choose ingredients"
-                      : `${selectedIngredients.length} ingredient${
-                          selectedIngredients.length > 1 ? "s" : ""
+                        : "Choose variants"
+                      : `${selectedVariantIds.length} variant${
+                          selectedVariantIds.length > 1 ? "s" : ""
                         } selected`}
                 </span>
 
                 <ChevronDown
                   className={`h-4 w-4 transition-transform ${
-                    showIngredients ? "rotate-180" : ""
+                    showVariants ? "rotate-180" : ""
                   }`}
                 />
               </button>
 
-              {showIngredients && (
-                <div className="mt-2 max-h-[190px] overflow-y-auto rounded-lg border border-[var(--border)] bg-[var(--surface)]">
-                  {ingredientList.length === 0 ? (
+              {showVariants && (
+                <div className="mt-2 max-h-[220px] overflow-y-auto rounded-lg border border-[var(--border)] bg-[var(--surface)]">
+                  {/* Select All */}
+
+                  {variants.length > 0 && (
+                    <label className="flex cursor-pointer items-center gap-3 border-b border-[var(--border)] bg-[var(--surface-grey)] px-4 py-3">
+                      <input
+                        type="checkbox"
+                        checked={
+                          selectedVariantIds.length === variants.length &&
+                          variants.length > 0
+                        }
+                        onChange={handleSelectAllVariants}
+                        disabled={submitting}
+                        className="h-4 w-4 accent-[var(--primary)]"
+                      />
+
+                      <span className="text-sm font-semibold text-[var(--text-primary)]">
+                        Select All
+                      </span>
+                    </label>
+                  )}
+
+                  {variants.length === 0 ? (
                     <div className="px-4 py-6 text-center text-sm text-[var(--text-muted)]">
-                      No ingredients found for this menu item.
+                      No variants found for this menu item.
                     </div>
                   ) : (
-                    ingredientList.map((ingredient) => {
-                      const selected = selectedIngredients.some(
-                        (item) => item.ingredientId === ingredient.id,
-                      );
+                    variants.map((variant) => {
+                      const selected = selectedVariantIds.includes(variant.id);
 
                       return (
                         <label
-                          key={ingredient.id}
+                          key={variant.id}
                           className="flex cursor-pointer items-center gap-3 border-b border-[var(--border)] px-4 py-2.5 last:border-b-0 hover:bg-[var(--surface-grey)]"
                         >
                           <input
                             type="checkbox"
                             checked={selected}
-                            onChange={() =>
-                              handleIngredientChange(ingredient.id)
-                            }
+                            onChange={() => handleVariantChange(variant.id)}
                             disabled={submitting}
                             className="h-4 w-4 accent-[var(--primary)]"
                           />
 
                           <span className="text-sm text-[var(--text-primary)]">
-                            {ingredient.ingredient_name}
+                            {variant.variant_name}
                           </span>
                         </label>
                       );
@@ -689,182 +1053,227 @@ const CreateMenuVariant = () => {
               )}
             </div>
 
-            {/* Selected Ingredients */}
-            {selectedIngredients.length > 0 && (
-              <div className="mt-5 overflow-hidden rounded-lg border border-[var(--border)]">
+            {/* ================================================================
+                Excel-Style Pricing Table
+
+                IMPORTANT:
+                No ingredient dropdown exists anymore.
+
+                ingredientList already contains ALL ingredients allocated
+                to the selected submenu.
+               ================================================================ */}
+
+            {ingredientList.length > 0 && selectedVariantObjects.length > 0 && (
+              <div className="mt-6 overflow-hidden rounded-lg border border-[var(--border)]">
                 <div className="bg-[var(--surface-grey)] px-4 py-3">
                   <p className="text-sm font-semibold text-[var(--text-primary)]">
-                    Selected Ingredients
+                    Ingredient Cost & Variant Pricing
+                  </p>
+
+                  <p className="mt-1 text-xs text-[var(--text-secondary)]">
+                    All ingredients allocated to this submenu are shown
+                    automatically.
                   </p>
                 </div>
 
                 <div className="overflow-x-auto">
-                  <table className="w-full text-left text-sm">
-                    <thead className="border-b border-[var(--border)] bg-[var(--surface-grey)]">
-                      <tr>
-                        <th className="px-4 py-3 font-medium text-[var(--text-secondary)]">
+                  <table className="min-w-max w-full border-collapse text-sm">
+                    {/* Header */}
+
+                    <thead>
+                      <tr className="border-b border-[var(--border)] bg-[var(--surface-grey)]">
+                        {/* Ingredient */}
+
+                        <th
+                          rowSpan={2}
+                          className="sticky left-0 z-20 min-w-[160px] border-r border-[var(--border)] px-4 py-3 text-left font-semibold text-[var(--text-primary)]"
+                        >
                           Ingredient
                         </th>
 
-                        <th className="px-4 py-3 font-medium text-[var(--text-secondary)]">
-                          Unit
-                        </th>
+                        {/* Variants */}
 
-                        <th className="px-4 py-3 font-medium text-[var(--text-secondary)]">
-                          Quantity
-                        </th>
+                        {selectedVariantObjects.map((variant) => (
+                          <th
+                            key={variant.id}
+                            colSpan={2}
+                            className="border-r border-[var(--border)] px-4 py-3 text-center font-semibold text-[var(--text-primary)]"
+                          >
+                            {variant.variant_name}
+                          </th>
+                        ))}
+                      </tr>
 
-                        <th className="px-4 py-3 font-medium text-[var(--text-secondary)]">
-                          Cost / Unit
-                        </th>
+                      <tr className="border-b border-[var(--border)] bg-[var(--surface-grey)]">
+                        {selectedVariantObjects.map((variant) => (
+                          <React.Fragment key={variant.id}>
+                            <th className="min-w-[110px] border-r border-[var(--border)] px-3 py-2 text-center text-xs font-medium text-[var(--text-secondary)]">
+                              Qty
+                            </th>
 
-                        <th className="px-4 py-3 font-medium text-[var(--text-secondary)]">
-                          Cost
-                        </th>
+                            <th className="min-w-[120px] border-r border-[var(--border)] px-3 py-2 text-center text-xs font-medium text-[var(--text-secondary)]">
+                              Cost
+                            </th>
+                          </React.Fragment>
+                        ))}
                       </tr>
                     </thead>
 
+                    {/* Body */}
+
                     <tbody>
-                      {selectedIngredients.map((selected) => {
-                        const ingredient = ingredientList.find(
-                          (item) => item.id === selected.ingredientId,
-                        );
+                      {/* =====================================================
+                            ALL ALLOCATED INGREDIENTS
+                           ===================================================== */}
 
-                        if (!ingredient) {
-                          return null;
-                        }
+                      {ingredientList.map((ingredient) => (
+                        <tr
+                          key={ingredient.id}
+                          className="border-b border-[var(--border)] last:border-b-0"
+                        >
+                          {/* Ingredient Name */}
 
-                        const cost = getIngredientCost(
-                          ingredient.id,
-                          selected.quantity,
-                        );
-
-                        return (
-                          <tr
-                            key={ingredient.id}
-                            className="border-b border-[var(--border)] last:border-b-0"
-                          >
-                            {/* Ingredient */}
-                            <td className="px-4 py-3">
-                              <span className="font-medium text-[var(--text-primary)]">
+                          <td className="sticky left-0 z-10 border-r border-[var(--border)] bg-[var(--surface)] px-4 py-3">
+                            <div>
+                              <p className="font-medium text-[var(--text-primary)]">
                                 {ingredient.ingredient_name}
-                              </span>
-                            </td>
+                              </p>
 
-                            {/* Unit */}
-                            <td className="px-4 py-3">
-                              <input
-                                type="text"
-                                value={ingredient.unit_name}
-                                readOnly
-                                className="w-24 rounded-lg border border-[var(--border)] bg-[var(--surface-grey)] px-3 py-2 text-sm text-[var(--text-secondary)] outline-none"
-                              />
-                            </td>
+                              <p className="mt-0.5 text-xs text-[var(--text-muted)]">
+                                ৳ {Number(ingredient.cost_per_unit).toFixed(2)}/
+                                {ingredient.unit_name}
+                              </p>
+                            </div>
+                          </td>
 
-                            {/* Quantity */}
-                            <td className="px-4 py-3">
-                              <input
-                                type="text"
-                                inputMode="decimal"
-                                value={selected.quantity}
-                                onChange={(e) =>
-                                  handleQuantityChange(
-                                    ingredient.id,
-                                    e.target.value,
-                                  )
-                                }
-                                placeholder="0"
-                                disabled={submitting}
-                                className="w-28 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm text-[var(--text-primary)] outline-none focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary)]/20"
-                              />
-                            </td>
+                          {/* Variant Columns */}
 
-                            {/* Cost Per Unit */}
-                            <td className="px-4 py-3">
-                              <input
-                                type="text"
-                                value={`৳ ${Number(
-                                  ingredient.cost_per_unit,
-                                ).toFixed(2)}`}
-                                readOnly
-                                className="w-32 rounded-lg border border-[var(--border)] bg-[var(--surface-grey)] px-3 py-2 text-sm text-[var(--text-secondary)] outline-none"
-                              />
-                            </td>
+                          {selectedVariantObjects.map((variant) => {
+                            const quantity = getIngredientQuantity(
+                              ingredient.id,
+                              variant.id,
+                            );
 
-                            {/* Cost */}
-                            <td className="px-4 py-3">
-                              <input
-                                type="text"
-                                value={`৳ ${cost.toFixed(2)}`}
-                                readOnly
-                                className="w-32 rounded-lg border border-[var(--border)] bg-[var(--surface-grey)] px-3 py-2 text-sm font-medium text-[var(--text-primary)] outline-none"
-                              />
+                            const cost = getIngredientCost(
+                              ingredient.id,
+                              quantity,
+                            );
+
+                            return (
+                              <React.Fragment key={variant.id}>
+                                {/* Quantity */}
+
+                                <td className="border-r border-[var(--border)] px-3 py-3">
+                                  <input
+                                    type="text"
+                                    inputMode="decimal"
+                                    value={quantity}
+                                    onChange={(e) =>
+                                      handleQuantityChange(
+                                        ingredient.id,
+                                        variant.id,
+                                        e.target.value,
+                                      )
+                                    }
+                                    placeholder="0"
+                                    disabled={submitting}
+                                    className="w-24 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm text-[var(--text-primary)] outline-none focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary)]/20"
+                                  />
+                                </td>
+
+                                {/* Cost */}
+
+                                <td className="border-r border-[var(--border)] px-3 py-3 text-right">
+                                  <span className="font-medium text-[var(--text-primary)]">
+                                    ৳ {cost.toFixed(2)}
+                                  </span>
+                                </td>
+                              </React.Fragment>
+                            );
+                          })}
+                        </tr>
+                      ))}
+
+                      {/* Buy Cost */}
+
+                      <tr className="bg-[var(--surface-grey)]">
+                        <td className="sticky left-0 z-10 border-r border-[var(--border)] bg-[var(--surface-grey)] px-4 py-3 font-semibold text-[var(--text-primary)]">
+                          Buy Cost
+                        </td>
+
+                        {selectedVariantObjects.map((variant) => (
+                          <React.Fragment key={variant.id}>
+                            <td className="border-r border-[var(--border)] px-3 py-3"></td>
+
+                            <td className="border-r border-[var(--border)] px-3 py-3 text-right font-semibold text-[var(--text-primary)]">
+                              ৳ {getVariantTotalCost(variant.id).toFixed(2)}
                             </td>
-                          </tr>
-                        );
-                      })}
+                          </React.Fragment>
+                        ))}
+                      </tr>
+
+                      {/* sell Price */}
+
+                      <tr className="bg-[var(--surface-grey)]">
+                        <td className="sticky left-0 z-10 border-r border-[var(--border)] bg-[var(--surface-grey)] px-4 py-3 font-semibold text-[var(--text-primary)]">
+                          Sell Price
+                        </td>
+
+                        {selectedVariantObjects.map((variant) => (
+                          <React.Fragment key={variant.id}>
+                            <td className="border-r border-[var(--border)] px-3 py-3"></td>
+
+                            <td className="border-r border-[var(--border)] px-3 py-3">
+                              <div className="relative">
+                                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-[var(--text-secondary)]">
+                                  ৳
+                                </span>
+
+                                <input
+                                  type="text"
+                                  inputMode="decimal"
+                                  value={getVariantPrice(variant.id)}
+                                  onChange={(e) =>
+                                    handlePriceChange(
+                                      variant.id,
+                                      e.target.value,
+                                    )
+                                  }
+                                  placeholder="0"
+                                  disabled={submitting}
+                                  className="w-28 rounded-lg border border-[var(--border)] bg-[var(--surface)] py-2 pl-7 pr-2 text-sm text-[var(--text-primary)] outline-none focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary)]/20"
+                                />
+                              </div>
+                            </td>
+                          </React.Fragment>
+                        ))}
+                      </tr>
+
+                      {/* Profit */}
+
+                      <tr className="bg-[var(--surface-grey)]">
+                        <td className="sticky left-0 z-10 border-r border-[var(--border)] bg-[var(--surface-grey)] px-4 py-3 font-semibold text-[var(--text-primary)]">
+                          Profit
+                        </td>
+
+                        {selectedVariantObjects.map((variant) => (
+                          <React.Fragment key={variant.id}>
+                            <td className="border-r border-[var(--border)] px-3 py-3"></td>
+
+                            <td className="border-r border-[var(--border)] px-3 py-3 text-right font-semibold text-[var(--text-primary)]">
+                              ৳ {getVariantProfit(variant.id).toFixed(2)}
+                            </td>
+                          </React.Fragment>
+                        ))}
+                      </tr>
                     </tbody>
                   </table>
                 </div>
               </div>
             )}
 
-            {/* Total Cost + Price */}
-            <div className="mt-5 grid grid-cols-1 gap-5 md:grid-cols-2">
-              {/* Total Cost */}
-              <div>
-                <label
-                  htmlFor="totalCost"
-                  className="mb-2 block text-sm font-medium text-[var(--text-primary)]"
-                >
-                  Total Cost
-                </label>
-
-                <input
-                  id="totalCost"
-                  type="text"
-                  value={`৳ ${totalCost.toFixed(2)}`}
-                  readOnly
-                  className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface-grey)] px-4 py-2.5 text-sm font-semibold text-[var(--text-primary)] outline-none"
-                />
-              </div>
-
-              {/* Price */}
-              <div>
-                <label
-                  htmlFor="price"
-                  className="mb-2 block text-sm font-medium text-[var(--text-primary)]"
-                >
-                  Price
-                  <span className="ml-1 text-[var(--danger)]">*</span>
-                </label>
-
-                <div className="relative">
-                  <span className="absolute left-4 top-1/2 -translate-y-1/2 text-sm text-[var(--text-secondary)]">
-                    ৳
-                  </span>
-
-                  <input
-                    id="price"
-                    type="text"
-                    inputMode="decimal"
-                    value={price}
-                    onChange={(e) => {
-                      const value = e.target.value;
-
-                      if (/^\d*\.?\d*$/.test(value)) {
-                        setPrice(value);
-                      }
-                    }}
-                    placeholder="Enter selling price"
-                    disabled={submitting}
-                    className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] py-2.5 pl-9 pr-4 text-sm text-[var(--text-primary)] outline-none focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary)]/20 disabled:cursor-not-allowed disabled:bg-[var(--surface-grey)]"
-                  />
-                </div>
-              </div>
-            </div>
-
             {/* Submit Button */}
+
             <div className="mt-6 flex justify-end">
               <button
                 type="submit"

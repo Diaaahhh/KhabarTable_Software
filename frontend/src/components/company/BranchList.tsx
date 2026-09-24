@@ -11,73 +11,99 @@ import {
   Mail,
   Loader2,
   AlertCircle,
+  Pencil,
+  Trash2,
 } from "lucide-react";
 
 import { API_BASE_URL } from "../../constants/api";
 
 const BranchList = () => {
   const router = useRouter();
+
+  // =========================================================
+  // BRANCH LIST STATE
+  // =========================================================
+
   const [search, setSearch] = useState("");
   const [openActionId, setOpenActionId] = useState(null);
 
   const [branches, setBranches] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+
+  // =========================================================
+  // PERMISSION STATE
+  // =========================================================
+
   const [permissionModalOpen, setPermissionModalOpen] = useState(false);
   const [selectedBranch, setSelectedBranch] = useState(null);
+
   const [menus, setMenus] = useState([]);
   const [permissionLoading, setPermissionLoading] = useState(false);
   const [permissionError, setPermissionError] = useState("");
   const [selectedPermissions, setSelectedPermissions] = useState([]);
   const [permissionSaving, setPermissionSaving] = useState(false);
-  
-  /* =========================================================
-     FETCH BRANCHES
-     ========================================================= */
+
+  // =========================================================
+  // EDIT STATE
+  // =========================================================
+
+  const [editModalOpen, setEditModalOpen] = useState(false);
+  const [editLoading, setEditLoading] = useState(false);
+  const [editError, setEditError] = useState("");
+
+  const [editForm, setEditForm] = useState({
+    branch_name: "",
+    phone: "",
+    email: "",
+    address: "",
+    expiry_date: "",
+  });
+
+  // =========================================================
+  // DELETE STATE
+  // =========================================================
+
+  const [deleteLoading, setDeleteLoading] = useState(false);
+
+  // =========================================================
+  // FETCH BRANCHES
+  // =========================================================
+
+  const fetchBranches = async () => {
+    try {
+      setLoading(true);
+      setError("");
+
+      const response = await fetch(`${API_BASE_URL}/api/branches`, {
+        method: "GET",
+        credentials: "include",
+        cache: "no-store",
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.message || "Failed to fetch branches.");
+      }
+
+      setBranches(data.branches || []);
+    } catch (err) {
+      console.error("Fetch branches error:", err);
+
+      setError(err.message || "Unable to load branches.");
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    const fetchBranches = async () => {
-      try {
-        setLoading(true);
-        setError("");
-
-        const response = await fetch(`${API_BASE_URL}/api/branches`, {
-          method: "GET",
-          credentials: "include",
-          cache: "no-store",
-        });
-
-        const data = await response.json();
-
-        if (!response.ok) {
-          throw new Error(data.message || "Failed to fetch branches.");
-        }
-
-        /*
-         * Expected response:
-         *
-         * {
-         *   success: true,
-         *   branches: [...]
-         * }
-         */
-
-        setBranches(data.branches || []);
-      } catch (err) {
-        console.error("Fetch branches error:", err);
-
-        setError(err.message || "Unable to load branches.");
-      } finally {
-        setLoading(false);
-      }
-    };
-
     fetchBranches();
   }, []);
 
-  /* =========================================================
-     SEARCH
-     ========================================================= */
+  // =========================================================
+  // SEARCH
+  // =========================================================
 
   const filteredBranches = branches.filter((branch) => {
     const searchValue = search.toLowerCase();
@@ -93,9 +119,9 @@ const BranchList = () => {
     );
   });
 
-  /* =========================================================
-     DATE FORMAT
-     ========================================================= */
+  // =========================================================
+  // DATE FORMAT
+  // =========================================================
 
   const formatDate = (date) => {
     if (!date) return "-";
@@ -113,9 +139,9 @@ const BranchList = () => {
     });
   };
 
-  /* =========================================================
-     EXPIRY STATUS
-     ========================================================= */
+  // =========================================================
+  // EXPIRY STATUS
+  // =========================================================
 
   const getExpiryStatus = (date) => {
     if (!date) {
@@ -153,104 +179,224 @@ const BranchList = () => {
     };
   };
 
-  /* =========================================================
-     RENDER
-     ========================================================= */
+  // =========================================================
+  // EDIT BRANCH
+  // =========================================================
 
- const handlePermissionClick = async (branch) => {
-  try {
-    setSelectedBranch(branch);
-    setPermissionModalOpen(true);
-    setPermissionLoading(true);
-    setPermissionError("");
-    setMenus([]);
-    setSelectedPermissions([]);
+  const handleEditClick = (branch) => {
+    setOpenActionId(null);
 
-    const response = await fetch(
-      `${API_BASE_URL}/api/branches/${branch.id}/permissions`,
-      {
-        method: "GET",
-        credentials: "include",
-        cache: "no-store",
+    router.push(`/company/edit/${branch.id}`);
+  };
+
+  // =========================================================
+  // EDIT FORM CHANGE
+  // =========================================================
+
+  const handleEditChange = (e) => {
+    const { name, value } = e.target;
+
+    setEditForm((prev) => ({
+      ...prev,
+      [name]: value,
+    }));
+  };
+
+  // =========================================================
+  // SAVE EDITED BRANCH
+  // =========================================================
+
+  const handleSaveEdit = async (e) => {
+    e.preventDefault();
+
+    if (!selectedBranch) return;
+
+    try {
+      setEditLoading(true);
+      setEditError("");
+
+      const response = await fetch(
+        `${API_BASE_URL}/api/branches/${selectedBranch.id}`,
+        {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          credentials: "include",
+          body: JSON.stringify(editForm),
+        },
+      );
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.message || "Failed to update branch.");
       }
+
+      // Update branch directly in state
+      setBranches((prev) =>
+        prev.map((branch) =>
+          branch.id === selectedBranch.id ? data.branch : branch,
+        ),
+      );
+
+      setEditModalOpen(false);
+      setSelectedBranch(null);
+    } catch (err) {
+      console.error("Update branch error:", err);
+
+      setEditError(err.message || "Unable to update branch.");
+    } finally {
+      setEditLoading(false);
+    }
+  };
+
+  // =========================================================
+  // DELETE BRANCH
+  // =========================================================
+
+  const handleDeleteBranch = async (branch) => {
+    setOpenActionId(null);
+
+    const confirmed = window.confirm(
+      `Are you sure you want to delete "${branch.branch_name}"?\n\nThis will also remove all permissions assigned to this branch.`,
     );
 
-    const data = await response.json();
-
-    if (!response.ok) {
-      throw new Error(
-        data.message || "Failed to fetch permissions."
-      );
+    if (!confirmed) {
+      return;
     }
 
-    // Menus available to the logged-in user
-    setMenus(data.menus || []);
+    try {
+      setDeleteLoading(true);
+      setError("");
 
-    // Menus currently assigned to this branch
-    setSelectedPermissions(
-      (data.selectedPermissionIds || []).map(Number)
-    );
-  } catch (err) {
-    console.error("Fetch permissions error:", err);
+      const response = await fetch(
+        `${API_BASE_URL}/api/branches/${branch.id}`,
+        {
+          method: "DELETE",
+          credentials: "include",
+        },
+      );
 
-    setPermissionError(
-      err.message || "Unable to load permissions."
-    );
-  } finally {
-    setPermissionLoading(false);
-  }
-};
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.message || "Failed to delete branch.");
+      }
+
+      // Remove deleted branch from UI
+      setBranches((prev) => prev.filter((item) => item.id !== branch.id));
+    } catch (err) {
+      console.error("Delete branch error:", err);
+
+      setError(err.message || "Unable to delete branch.");
+    } finally {
+      setDeleteLoading(false);
+    }
+  };
+
+  // =========================================================
+  // PERMISSION
+  // =========================================================
+
+  const handlePermissionClick = async (branch) => {
+    try {
+      setSelectedBranch(branch);
+      setPermissionModalOpen(true);
+
+      setPermissionLoading(true);
+      setPermissionError("");
+
+      setMenus([]);
+      setSelectedPermissions([]);
+
+      const response = await fetch(
+        `${API_BASE_URL}/api/branches/${branch.id}/permissions`,
+        {
+          method: "GET",
+          credentials: "include",
+          cache: "no-store",
+        },
+      );
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.message || "Failed to fetch permissions.");
+      }
+
+      setMenus(data.menus || []);
+
+      setSelectedPermissions((data.selectedPermissionIds || []).map(Number));
+    } catch (err) {
+      console.error("Fetch permissions error:", err);
+
+      setPermissionError(err.message || "Unable to load permissions.");
+    } finally {
+      setPermissionLoading(false);
+    }
+  };
+
+  // =========================================================
+  // PERMISSION CHANGE
+  // =========================================================
 
   const handlePermissionChange = (menuId) => {
+    const numericMenuId = Number(menuId);
+
     setSelectedPermissions((prev) =>
-      prev.includes(menuId)
-        ? prev.filter((id) => id !== menuId)
-        : [...prev, menuId],
+      prev.includes(numericMenuId)
+        ? prev.filter((id) => id !== numericMenuId)
+        : [...prev, numericMenuId],
     );
   };
-  
+
+  // =========================================================
+  // SAVE PERMISSIONS
+  // =========================================================
+
   const handleSavePermissions = async () => {
-  if (!selectedBranch) return;
+    if (!selectedBranch) return;
 
-  try {
-    setPermissionSaving(true);
-    setPermissionError("");
+    try {
+      setPermissionSaving(true);
+      setPermissionError("");
 
-    const response = await fetch(
-      `${API_BASE_URL}/api/branches/${selectedBranch.id}/permissions`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
+      const response = await fetch(
+        `${API_BASE_URL}/api/branches/${selectedBranch.id}/permissions`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          credentials: "include",
+          body: JSON.stringify({
+            menu_ids: selectedPermissions,
+          }),
         },
-        credentials: "include",
-        body: JSON.stringify({
-          menu_ids: selectedPermissions,
-        }),
-      }
-    );
-
-    const data = await response.json();
-
-    if (!response.ok) {
-      throw new Error(
-        data.message || "Failed to save permissions."
       );
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.message || "Failed to save permissions.");
+      }
+
+      console.log("Permissions saved:", data);
+
+      setPermissionModalOpen(false);
+    } catch (err) {
+      console.error("Save permissions error:", err);
+
+      setPermissionError(err.message || "Unable to save permissions.");
+    } finally {
+      setPermissionSaving(false);
     }
+  };
 
-    console.log("Permissions saved:", data);
-
-    setPermissionModalOpen(false);
-  } catch (err) {
-    console.error("Save permissions error:", err);
-
-    setPermissionError(
-      err.message || "Unable to save permissions."
-    );
-  } finally {
-    setPermissionSaving(false);
-  }
-};
+  // =========================================================
+  // RENDER
+  // =========================================================
 
   return (
     <div className="min-h-screen bg-surface-grey px-4 py-6 sm:px-6 lg:px-8">
@@ -283,9 +429,7 @@ const BranchList = () => {
         ===================================================== */}
 
         <div className="overflow-hidden rounded-xl border border-border bg-white shadow-sm">
-          {/* ===================================================
-              TABLE HEADER / SEARCH
-          =================================================== */}
+          {/* Search */}
 
           <div className="flex flex-col gap-4 border-b border-border p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5">
             <div>
@@ -298,8 +442,6 @@ const BranchList = () => {
                 {filteredBranches.length === 1 ? "branch" : "branches"} found
               </p>
             </div>
-
-            {/* Search */}
 
             <div className="relative w-full sm:w-72">
               <Search
@@ -317,26 +459,19 @@ const BranchList = () => {
             </div>
           </div>
 
-          {/* ===================================================
-              ERROR
-          =================================================== */}
+          {/* Error */}
 
           {error && (
             <div className="m-5 flex items-center gap-3 rounded-lg border border-danger/20 bg-danger/5 px-4 py-3 text-sm text-danger">
               <AlertCircle size={18} />
-
               <span>{error}</span>
             </div>
           )}
 
-          {/* ===================================================
-              TABLE
-          =================================================== */}
+          {/* Table */}
 
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[1000px] border-collapse">
-              {/* Table Head */}
-
+            <table className="w-full min-w-[1100px] border-collapse">
               <thead>
                 <tr className="border-b border-border bg-surface-grey">
                   <th className="px-5 py-3.5 text-left text-xs font-semibold uppercase tracking-wide text-text-secondary">
@@ -369,12 +504,8 @@ const BranchList = () => {
                 </tr>
               </thead>
 
-              {/* Table Body */}
-
               <tbody className="divide-y divide-border">
-                {/* =================================================
-                    LOADING
-                ================================================= */}
+                {/* Loading */}
 
                 {loading ? (
                   <tr>
@@ -392,10 +523,6 @@ const BranchList = () => {
                     </td>
                   </tr>
                 ) : filteredBranches.length > 0 ? (
-                  /* =================================================
-                     BRANCHES
-                  ================================================= */
-
                   filteredBranches.map((branch) => {
                     const expiryStatus = getExpiryStatus(branch.expiry_date);
 
@@ -467,7 +594,7 @@ const BranchList = () => {
                           </div>
                         </td>
 
-                        {/* Expiry Date */}
+                        {/* Expiry */}
 
                         <td className="px-5 py-4">
                           <div>
@@ -491,7 +618,7 @@ const BranchList = () => {
                           </span>
                         </td>
 
-                        {/* Action */}
+                        {/* Actions */}
 
                         <td className="px-5 py-4 text-center">
                           <div className="relative inline-block">
@@ -513,16 +640,41 @@ const BranchList = () => {
                             {/* Dropdown */}
 
                             {openActionId === branch.id && (
-                              <div className="absolute right-0 top-full z-50 mt-2 w-36 overflow-hidden rounded-lg border border-border bg-white py-1 text-left shadow-lg">
+                              <div className="absolute right-0 top-full z-50 mt-2 w-40 overflow-hidden rounded-lg border border-border bg-white py-1 text-left shadow-lg">
+                                {/* Edit */}
+
+                                <button
+                                  type="button"
+                                  onClick={() => handleEditClick(branch)}
+                                  className="flex w-full items-center gap-2 px-3 py-2.5 text-sm text-text-primary transition hover:bg-surface-grey hover:text-primary"
+                                >
+                                  <Pencil size={15} />
+                                  Edit
+                                </button>
+
+                                {/* Permission */}
+
                                 <button
                                   type="button"
                                   onClick={() => {
                                     setOpenActionId(null);
                                     handlePermissionClick(branch);
                                   }}
-                                  className="flex w-full items-center px-3 py-2.5 text-sm text-text-primary transition hover:bg-surface-grey hover:text-primary"
+                                  className="flex w-full items-center gap-2 px-3 py-2.5 text-sm text-text-primary transition hover:bg-surface-grey hover:text-primary"
                                 >
                                   Permission
+                                </button>
+
+                                {/* Delete */}
+
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteBranch(branch)}
+                                  disabled={deleteLoading}
+                                  className="flex w-full items-center gap-2 px-3 py-2.5 text-sm text-danger transition hover:bg-danger/5 disabled:cursor-not-allowed disabled:opacity-50"
+                                >
+                                  <Trash2 size={15} />
+                                  Delete
                                 </button>
                               </div>
                             )}
@@ -532,9 +684,7 @@ const BranchList = () => {
                     );
                   })
                 ) : (
-                  /* =================================================
-                     EMPTY STATE
-                  ================================================= */
+                  /* Empty */
 
                   <tr>
                     <td colSpan={7} className="px-5 py-16 text-center">
@@ -562,9 +712,7 @@ const BranchList = () => {
             </table>
           </div>
 
-          {/* =====================================================
-              FOOTER
-          ===================================================== */}
+          {/* Footer */}
 
           <div className="flex items-center justify-between border-t border-border bg-surface-dark px-5 py-3">
             <p className="text-xs text-text-muted">
@@ -583,6 +731,176 @@ const BranchList = () => {
       </div>
 
       {/* =====================================================
+          EDIT MODAL
+      ===================================================== */}
+
+      {editModalOpen && (
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 px-4 py-6"
+          onClick={() => {
+            if (!editLoading) {
+              setEditModalOpen(false);
+            }
+          }}
+        >
+          <div
+            className="w-full max-w-lg overflow-hidden rounded-xl bg-white shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+
+            <div className="flex items-center justify-between border-b border-border px-5 py-4">
+              <div>
+                <h2 className="text-lg font-semibold text-palette-dark">
+                  Edit Branch
+                </h2>
+
+                {selectedBranch && (
+                  <p className="mt-1 text-xs text-text-muted">
+                    Branch #{selectedBranch.id}
+                  </p>
+                )}
+              </div>
+
+              <button
+                type="button"
+                disabled={editLoading}
+                onClick={() => setEditModalOpen(false)}
+                className="flex h-8 w-8 items-center justify-center rounded-md text-xl text-text-secondary transition hover:bg-surface-grey hover:text-primary disabled:opacity-50"
+              >
+                ×
+              </button>
+            </div>
+
+            {/* Form */}
+
+            <form onSubmit={handleSaveEdit}>
+              <div className="space-y-4 p-5">
+                {/* Error */}
+
+                {editError && (
+                  <div className="flex items-center gap-3 rounded-lg border border-danger/20 bg-danger/5 px-4 py-3 text-sm text-danger">
+                    <AlertCircle size={18} />
+                    <span>{editError}</span>
+                  </div>
+                )}
+
+                {/* Branch Name */}
+
+                <div>
+                  <label className="mb-1.5 block text-sm font-medium text-text-primary">
+                    Branch Name
+                  </label>
+
+                  <input
+                    type="text"
+                    name="branch_name"
+                    value={editForm.branch_name}
+                    onChange={handleEditChange}
+                    required
+                    className="w-full rounded-lg border border-border bg-white px-3 py-2.5 text-sm text-text-primary outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/10"
+                    placeholder="Enter branch name"
+                  />
+                </div>
+
+                {/* Phone */}
+
+                <div>
+                  <label className="mb-1.5 block text-sm font-medium text-text-primary">
+                    Phone
+                  </label>
+
+                  <input
+                    type="text"
+                    name="phone"
+                    value={editForm.phone}
+                    onChange={handleEditChange}
+                    className="w-full rounded-lg border border-border bg-white px-3 py-2.5 text-sm text-text-primary outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/10"
+                    placeholder="Enter phone number"
+                  />
+                </div>
+
+                {/* Email */}
+
+                <div>
+                  <label className="mb-1.5 block text-sm font-medium text-text-primary">
+                    Email
+                  </label>
+
+                  <input
+                    type="email"
+                    name="email"
+                    value={editForm.email}
+                    onChange={handleEditChange}
+                    className="w-full rounded-lg border border-border bg-white px-3 py-2.5 text-sm text-text-primary outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/10"
+                    placeholder="Enter email"
+                  />
+                </div>
+
+                {/* Address */}
+
+                <div>
+                  <label className="mb-1.5 block text-sm font-medium text-text-primary">
+                    Address
+                  </label>
+
+                  <textarea
+                    name="address"
+                    value={editForm.address}
+                    onChange={handleEditChange}
+                    rows={3}
+                    className="w-full resize-none rounded-lg border border-border bg-white px-3 py-2.5 text-sm text-text-primary outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/10"
+                    placeholder="Enter branch address"
+                  />
+                </div>
+
+                {/* Expiry Date */}
+
+                <div>
+                  <label className="mb-1.5 block text-sm font-medium text-text-primary">
+                    Expiry Date
+                  </label>
+
+                  <input
+                    type="date"
+                    name="expiry_date"
+                    value={editForm.expiry_date}
+                    onChange={handleEditChange}
+                    className="w-full rounded-lg border border-border bg-white px-3 py-2.5 text-sm text-text-primary outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/10"
+                  />
+                </div>
+              </div>
+
+              {/* Footer */}
+
+              <div className="flex items-center justify-end gap-2 border-t border-border bg-surface-dark px-5 py-3">
+                <button
+                  type="button"
+                  disabled={editLoading}
+                  onClick={() => setEditModalOpen(false)}
+                  className="rounded-lg border border-border bg-white px-4 py-2 text-sm font-medium text-text-primary transition hover:bg-surface-grey disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+
+                <button
+                  type="submit"
+                  disabled={editLoading}
+                  className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white transition hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {editLoading && (
+                    <Loader2 size={15} className="animate-spin" />
+                  )}
+
+                  {editLoading ? "Saving..." : "Save Changes"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* =====================================================
           PERMISSION MODAL
       ===================================================== */}
 
@@ -595,7 +913,8 @@ const BranchList = () => {
             className="w-full max-w-lg overflow-hidden rounded-xl bg-white shadow-2xl"
             onClick={(e) => e.stopPropagation()}
           >
-            {/* Modal Header */}
+            {/* Header */}
+
             <div className="flex items-center justify-between border-b border-border px-5 py-4">
               <div>
                 <h2 className="text-lg font-semibold text-palette-dark">
@@ -619,9 +938,9 @@ const BranchList = () => {
               </button>
             </div>
 
-            {/* Modal Body */}
+            {/* Body */}
+
             <div className="max-h-[60vh] overflow-y-auto p-5">
-              {/* Loading */}
               {permissionLoading && (
                 <div className="flex flex-col items-center justify-center py-10">
                   <Loader2 size={28} className="animate-spin text-primary" />
@@ -632,16 +951,13 @@ const BranchList = () => {
                 </div>
               )}
 
-              {/* Error */}
               {!permissionLoading && permissionError && (
                 <div className="flex items-center gap-3 rounded-lg border border-danger/20 bg-danger/5 px-4 py-3 text-sm text-danger">
                   <AlertCircle size={18} />
-
                   <span>{permissionError}</span>
                 </div>
               )}
 
-              {/* Menu Permissions */}
               {!permissionLoading && !permissionError && menus.length > 0 && (
                 <div className="space-y-2">
                   {menus.map((menu) => (
@@ -649,15 +965,13 @@ const BranchList = () => {
                       key={menu.id}
                       className="flex cursor-pointer items-center gap-3 rounded-lg border border-border bg-surface-grey px-4 py-3 transition hover:bg-surface-dark"
                     >
-                      {/* Checkbox */}
                       <input
                         type="checkbox"
-                        checked={selectedPermissions.includes(menu.id)}
+                        checked={selectedPermissions.includes(Number(menu.id))}
                         onChange={() => handlePermissionChange(menu.id)}
                         className="h-4 w-4 cursor-pointer accent-primary"
                       />
 
-                      {/* Menu Information */}
                       <div className="flex-1">
                         <p className="text-sm font-medium text-text-primary">
                           {menu.menu}
@@ -674,7 +988,6 @@ const BranchList = () => {
                 </div>
               )}
 
-              {/* No Permissions */}
               {!permissionLoading && !permissionError && menus.length === 0 && (
                 <div className="py-10 text-center">
                   <p className="text-sm font-medium text-text-primary">
@@ -682,13 +995,14 @@ const BranchList = () => {
                   </p>
 
                   <p className="mt-1 text-xs text-text-muted">
-                    No menu permissions are assigned to this branch.
+                    No menu permissions are available.
                   </p>
                 </div>
               )}
             </div>
 
-            {/* Modal Footer */}
+            {/* Footer */}
+
             <div className="flex items-center justify-between border-t border-border bg-surface-dark px-5 py-3">
               <p className="text-xs text-text-muted">
                 {selectedPermissions.length} permission
@@ -704,14 +1018,14 @@ const BranchList = () => {
                   Close
                 </button>
 
-               <button
-  type="button"
-  onClick={handleSavePermissions}
-  disabled={permissionSaving}
-  className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white transition hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-60"
->
-  {permissionSaving ? "Saving..." : "Save Permissions"}
-</button>
+                <button
+                  type="button"
+                  onClick={handleSavePermissions}
+                  disabled={permissionSaving}
+                  className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white transition hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {permissionSaving ? "Saving..." : "Save Permissions"}
+                </button>
               </div>
             </div>
           </div>
