@@ -45,7 +45,7 @@ export default function CompanyRegistration() {
   const [branchCount, setBranchCount] = useState("1");
   const [customBranchCount, setCustomBranchCount] = useState("");
   const [imagePreview, setImagePreview] = useState<string | null>(null);
-
+  const [companyLogo, setCompanyLogo] = useState<File | null>(null);
   const [formData, setFormData] = useState({
     companyName: "",
     name: "",
@@ -66,22 +66,22 @@ export default function CompanyRegistration() {
     general: "",
   });
 
-useEffect(() => {
-  const handleClickOutside = (event: MouseEvent) => {
-    if (
-      restaurantTypeRef.current &&
-      !restaurantTypeRef.current.contains(event.target as Node)
-    ) {
-      setRestaurantTypeOpen(false);
-    }
-  };
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (
+        restaurantTypeRef.current &&
+        !restaurantTypeRef.current.contains(event.target as Node)
+      ) {
+        setRestaurantTypeOpen(false);
+      }
+    };
 
-  document.addEventListener("mousedown", handleClickOutside);
+    document.addEventListener("mousedown", handleClickOutside);
 
-  return () => {
-    document.removeEventListener("mousedown", handleClickOutside);
-  };
-}, []);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, []);
 
   // =========================================================
   // FETCH RESTAURANT CATEGORIES
@@ -174,53 +174,140 @@ useEffect(() => {
   // IMAGE CHANGE
   // =========================================================
 
-  const handleImageChange = (event: ChangeEvent<HTMLInputElement>) => {
+  // =========================================================
+  // IMAGE CHANGE + RESIZE + CROP + COMPRESSION
+  // =========================================================
+  const handleImageChange = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
 
     if (!file) {
       return;
     }
 
-    // =========================================================
-    // FILE SIZE VALIDATION
-    // =========================================================
+    try {
+      // =====================================================
+      // CREATE IMAGE
+      // =====================================================
+      const image = new Image();
 
-    if (file.size > 50 * 1024) {
-      Swal.fire({
-        icon: "warning",
-        title: "Image too large",
-        text: "Please select an image smaller than 50 KB.",
-        confirmButtonColor: "#7d1119",
+      const imageUrl = URL.createObjectURL(file);
+
+      image.src = imageUrl;
+
+      await new Promise<void>((resolve, reject) => {
+        image.onload = () => resolve();
+        image.onerror = () => reject(new Error("Invalid image."));
       });
 
-      event.target.value = "";
-      return;
-    }
+      // =====================================================
+      // SOURCE DIMENSIONS
+      // =====================================================
+      const sourceWidth = image.naturalWidth;
+      const sourceHeight = image.naturalHeight;
 
-    // =========================================================
-    // SQUARE IMAGE VALIDATION
-    // =========================================================
+      // =====================================================
+      // PERFECT SQUARE CROP
+      // =====================================================
+      const cropSize = Math.min(sourceWidth, sourceHeight);
 
-    const image = new Image();
+      const cropX = (sourceWidth - cropSize) / 2;
+      const cropY = (sourceHeight - cropSize) / 2;
 
-    image.onload = () => {
-      if (image.width !== image.height) {
-        Swal.fire({
-          icon: "warning",
-          title: "Invalid image shape",
-          text: "Please select a square image (for example, 500 × 500 pixels).",
-          confirmButtonColor: "#7d1119",
-        });
+      // =====================================================
+      // START WITH 512 × 512
+      // =====================================================
+      let outputSize = Math.min(cropSize, 512);
 
-        event.target.value = "";
-        return;
+      let compressedBlob: Blob | null = null;
+
+      // =====================================================
+      // COMPRESS
+      // =====================================================
+      // Try several dimensions until the file is <= 50 KB.
+      while (outputSize >= 64) {
+        const canvas = document.createElement("canvas");
+
+        canvas.width = outputSize;
+        canvas.height = outputSize;
+
+        const context = canvas.getContext("2d");
+
+        if (!context) {
+          throw new Error("Unable to process image.");
+        }
+
+        // Better image quality while resizing
+        context.imageSmoothingEnabled = true;
+        context.imageSmoothingQuality = "high";
+
+        // White background
+        // Useful because JPEG does not support transparency.
+        context.fillStyle = "#ffffff";
+        context.fillRect(0, 0, outputSize, outputSize);
+
+        // ===================================================
+        // CENTER-CROP + RESIZE
+        // ===================================================
+        context.drawImage(
+          image,
+          cropX,
+          cropY,
+          cropSize,
+          cropSize,
+          0,
+          0,
+          outputSize,
+          outputSize,
+        );
+
+        // ===================================================
+        // TRY DIFFERENT JPEG QUALITIES
+        // ===================================================
+        const qualities = [0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3];
+
+        for (const quality of qualities) {
+          const blob = await new Promise<Blob | null>((resolve) => {
+            canvas.toBlob((result) => resolve(result), "image/jpeg", quality);
+          });
+
+          if (blob && blob.size <= 50 * 1024) {
+            compressedBlob = blob;
+            break;
+          }
+        }
+
+        // ===================================================
+        // STOP IF SUCCESSFULLY COMPRESSED
+        // ===================================================
+        if (compressedBlob) {
+          break;
+        }
+
+        // ===================================================
+        // STILL TOO LARGE → REDUCE DIMENSIONS
+        // ===================================================
+        outputSize = Math.floor(outputSize * 0.8);
       }
 
-      // =======================================================
-      // VALID SQUARE IMAGE
-      // =======================================================
+      // =====================================================
+      // CHECK FINAL RESULT
+      // =====================================================
+      if (!compressedBlob || compressedBlob.size > 50 * 1024) {
+        throw new Error("Unable to compress image below 50 KB.");
+      }
 
-      const previewUrl = URL.createObjectURL(file);
+      // =====================================================
+      // CREATE PROCESSED FILE
+      // =====================================================
+      const processedFile = new File([compressedBlob], "company-logo.jpg", {
+        type: "image/jpeg",
+        lastModified: Date.now(),
+      });
+
+      // =====================================================
+      // CREATE PREVIEW
+      // =====================================================
+      const previewUrl = URL.createObjectURL(processedFile);
 
       setImagePreview((previous) => {
         if (previous) {
@@ -229,20 +316,37 @@ useEffect(() => {
 
         return previewUrl;
       });
-    };
 
-    image.onerror = () => {
-      Swal.fire({
-        icon: "error",
-        title: "Invalid image",
-        text: "Please select a valid image file.",
-        confirmButtonColor: "#7d1119",
-      });
+      // =====================================================
+      // STORE PROCESSED FILE
+      // =====================================================
+      setCompanyLogo(processedFile);
+
+      // =====================================================
+      // CLEAN SOURCE URL
+      // =====================================================
+      URL.revokeObjectURL(imageUrl);
+
+      console.log(
+        `Original: ${(file.size / 1024).toFixed(2)} KB`,
+        `→ Processed: ${(processedFile.size / 1024).toFixed(2)} KB`,
+        `→ Size: ${outputSize} × ${outputSize}`,
+      );
+    } catch (error) {
+      console.error("Image processing error:", error);
+
+      setImagePreview(null);
+      setCompanyLogo(null);
 
       event.target.value = "";
-    };
 
-    image.src = URL.createObjectURL(file);
+      Swal.fire({
+        icon: "error",
+        title: "Unable to process image",
+        text: "Please select a valid image.",
+        confirmButtonColor: "#7d1119",
+      });
+    }
   };
 
   // =========================================================
@@ -337,13 +441,8 @@ useEffect(() => {
     // =======================================================
     // COMPANY LOGO
     // =======================================================
-
-    const imageInput = document.getElementById(
-      "company-image",
-    ) as HTMLInputElement | null;
-
-    if (imageInput?.files?.[0]) {
-      form.append("logo", imageInput.files[0]);
+    if (companyLogo) {
+      form.append("logo", companyLogo);
     }
 
     // =======================================================
@@ -445,7 +544,8 @@ useEffect(() => {
       setBranchCount("1");
       setCustomBranchCount("");
       setImagePreview(null);
-
+      setCompanyLogo(null);
+      
       const imageInput = document.getElementById(
         "company-image",
       ) as HTMLInputElement | null;
@@ -482,7 +582,6 @@ useEffect(() => {
         >
           <div className="space-y-7">
             {/* Company Name */}
-
             <FormField
               icon={<Building2 size={20} strokeWidth={2} />}
               label="Company"
@@ -492,9 +591,7 @@ useEffect(() => {
               placeholder="Type company name"
               required
             />
-
             {/* Name */}
-
             <FormField
               icon={<User size={20} strokeWidth={2} />}
               label="Name"
@@ -504,9 +601,7 @@ useEffect(() => {
               placeholder="Type Name"
               required
             />
-
             {/* Restaurant Type */}
-
             <div>
               <div className="mb-2 flex items-center gap-3">
                 <Compass
@@ -684,9 +779,7 @@ useEffect(() => {
                 )}
               </div>
             </div>
-
             {/* Email */}
-
             <div>
               <FormField
                 icon={<Mail size={20} strokeWidth={2} />}
@@ -703,9 +796,7 @@ useEffect(() => {
                 <p className="mt-1 text-sm text-danger">{errors.email}</p>
               )}
             </div>
-
             {/* Phone */}
-
             <div>
               <FormField
                 icon={<Phone size={20} strokeWidth={2} />}
@@ -722,9 +813,7 @@ useEffect(() => {
                 <p className="mt-1 text-sm text-danger">{errors.phone}</p>
               )}
             </div>
-
             {/* Password */}
-
             <FormField
               icon={<LockKeyhole size={20} strokeWidth={2} />}
               label="Password"
@@ -735,9 +824,7 @@ useEffect(() => {
               placeholder="Type password"
               required
             />
-
             {/* Designation */}
-
             <FormField
               icon={<BriefcaseBusiness size={20} strokeWidth={2} />}
               label="Designation"
@@ -747,9 +834,7 @@ useEffect(() => {
               placeholder="Type designation"
               required
             />
-
             {/* Address */}
-
             <FormField
               icon={<MapPin size={20} strokeWidth={2} />}
               label="Address"
@@ -759,9 +844,7 @@ useEffect(() => {
               placeholder="Type address"
               required
             />
-
             {/* Branch Count */}
-
             <div>
               <div className="mb-2 flex items-center gap-3">
                 <Building
@@ -776,52 +859,98 @@ useEffect(() => {
                 </label>
               </div>
 
-              <div className="grid grid-cols-3 gap-x-5 gap-y-3 border-b-2 border-secondary-light pb-3 sm:grid-cols-6">
-                {["1", "2", "3", "4", "5", "Custom"].map((value) => (
-                  <label
-                    key={value}
-                    className="flex cursor-pointer items-center gap-2 text-sm text-text-primary"
-                  >
-                    <input
-                      type="radio"
-                      name="branchCount"
-                      value={value}
-                      checked={branchCount === value}
-                      onChange={(event) => {
-                        setBranchCount(event.target.value);
+              <div className="flex items-center gap-3 border-b-2 border-secondary-light pb-3">
+                {/* Branch Options */}
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+                  {["1", "2", "3", "4", "5", "Custom"].map((value) => (
+                    <label
+                      key={value}
+                      className="flex cursor-pointer items-center gap-1.5 text-sm text-text-primary"
+                    >
+                      <input
+                        type="radio"
+                        name="branchCount"
+                        value={value}
+                        checked={branchCount === value}
+                        onChange={(event) => {
+                          const selectedValue = event.target.value;
 
-                        if (event.target.value !== "Custom") {
-                          setCustomBranchCount("");
-                        }
-                      }}
-                      className="h-5 w-5 cursor-pointer accent-primary"
-                    />
+                          setBranchCount(selectedValue);
 
-                    <span>{value}</span>
-                  </label>
-                ))}
-              </div>
+                          if (selectedValue !== "Custom") {
+                            setCustomBranchCount("");
+                          }
+                        }}
+                        className="h-4 w-4 cursor-pointer accent-primary"
+                      />
 
-              {branchCount === "Custom" && (
-                <div className="mt-3">
+                      <span>{value}</span>
+                    </label>
+                  ))}
+                </div>
+
+                {/* Custom Branch Count Input */}
+                {branchCount === "Custom" && (
                   <input
                     type="number"
-                    min="1"
+                    min="6"
                     step="1"
                     value={customBranchCount}
-                    onChange={(event) =>
-                      setCustomBranchCount(event.target.value)
-                    }
-                    placeholder="Enter number of branches"
+                    onChange={(event) => {
+                      const value = event.target.value;
+
+                      // Allow empty input while typing
+                      if (value === "") {
+                        setCustomBranchCount("");
+                        return;
+                      }
+
+                      // Allow numbers while typing
+                      if (/^\d+$/.test(value)) {
+                        setCustomBranchCount(value);
+                      }
+                    }}
+                    onWheel={(event) => {
+                      event.currentTarget.blur();
+                    }}
+                    onKeyDown={(event) => {
+                      // Prevent decimal point, minus sign, plus sign, e, E
+                      if (
+                        event.key === "." ||
+                        event.key === "-" ||
+                        event.key === "+" ||
+                        event.key.toLowerCase() === "e"
+                      ) {
+                        event.preventDefault();
+                      }
+                    }}
+                    placeholder="6+"
                     required
-                    className="w-full appearance-none border-b-2 border-secondary-light bg-transparent px-0 py-2 text-[16px] text-text-primary outline-none transition-colors placeholder:text-text-muted focus:border-primary"
+                    className="
+          w-20
+          shrink-0
+          appearance-none
+          border-b-2
+          border-secondary-light
+          bg-transparent
+          px-1
+          py-1
+          text-center
+          text-[16px]
+          text-text-primary
+          outline-none
+          transition-colors
+          placeholder:text-text-muted
+          focus:border-primary
+          [&::-webkit-inner-spin-button]:appearance-none
+          [&::-webkit-outer-spin-button]:appearance-none
+        "
                   />
-                </div>
-              )}
+                )}
+              </div>
             </div>
 
             {/* Image Upload */}
-
             <div>
               <div className="mb-2 flex items-center gap-3">
                 <UploadCloud
