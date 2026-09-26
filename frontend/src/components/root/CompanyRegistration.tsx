@@ -1,7 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState, type ChangeEvent, type FormEvent } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type ChangeEvent,
+  type FormEvent,
+} from "react";
 import Swal from "sweetalert2";
 
 import {
@@ -16,11 +22,16 @@ import {
   Building,
   UploadCloud,
   ArrowLeft,
+  ChevronDown,
+  Check,
+  X,
 } from "lucide-react";
-import {API_BASE_URL} from "../../constants/api"
+import { API_BASE_URL } from "../../constants/api";
 
 export default function CompanyRegistration() {
-  const [restaurantType, setRestaurantType] = useState("");
+  const [restaurantType, setRestaurantType] = useState<string[]>([]);
+  const [restaurantTypeOpen, setRestaurantTypeOpen] = useState(false);
+  const restaurantTypeRef = useRef<HTMLDivElement>(null);
   const [restaurantCategories, setRestaurantCategories] = useState<
     {
       id: number;
@@ -54,6 +65,23 @@ export default function CompanyRegistration() {
     phone: "",
     general: "",
   });
+
+useEffect(() => {
+  const handleClickOutside = (event: MouseEvent) => {
+    if (
+      restaurantTypeRef.current &&
+      !restaurantTypeRef.current.contains(event.target as Node)
+    ) {
+      setRestaurantTypeOpen(false);
+    }
+  };
+
+  document.addEventListener("mousedown", handleClickOutside);
+
+  return () => {
+    document.removeEventListener("mousedown", handleClickOutside);
+  };
+}, []);
 
   // =========================================================
   // FETCH RESTAURANT CATEGORIES
@@ -303,7 +331,7 @@ export default function CompanyRegistration() {
     form.append("password", formData.password);
     form.append("designation", formData.designation);
     form.append("address", formData.address);
-    form.append("restaurantType", restaurantType);
+    form.append("restaurantType", JSON.stringify(restaurantType));
     form.append("branchCount", String(finalBranchCount));
 
     // =======================================================
@@ -323,13 +351,10 @@ export default function CompanyRegistration() {
     // =======================================================
 
     try {
-      const response = await fetch(
-        `${API_BASE_URL}/api/registration/company`,
-        {
-          method: "POST",
-          body: form,
-        },
-      );
+      const response = await fetch(`${API_BASE_URL}/api/registration/company`, {
+        method: "POST",
+        body: form,
+      });
 
       const data = await response.json();
 
@@ -416,7 +441,7 @@ export default function CompanyRegistration() {
         address: "",
       });
 
-      setRestaurantType("");
+      setRestaurantType([]);
       setBranchCount("1");
       setCustomBranchCount("");
       setImagePreview(null);
@@ -496,25 +521,168 @@ export default function CompanyRegistration() {
                 </label>
               </div>
 
-              <select
-                value={restaurantType}
-                onChange={(event) => setRestaurantType(event.target.value)}
-                required
-                disabled={loadingRestaurantCategories}
-                className="w-full border-b-2 border-secondary-light bg-transparent px-0 py-2 text-[16px] text-text-muted outline-none transition-colors focus:border-primary disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                <option value="" disabled>
-                  {loadingRestaurantCategories
-                    ? "Loading restaurant types..."
-                    : "Select restaurant type..."}
-                </option>
+              <div ref={restaurantTypeRef} className="relative">
+                {/* Selected values / dropdown button */}
+                <button
+                  type="button"
+                  onClick={() => setRestaurantTypeOpen((previous) => !previous)}
+                  disabled={loadingRestaurantCategories}
+                  className="flex min-h-[46px] w-full items-center justify-between gap-3 border-b-2 border-secondary-light bg-transparent px-0 py-2 text-left outline-none transition-colors hover:border-primary focus:border-primary disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  <div className="flex flex-1 flex-wrap items-center gap-2">
+                    {loadingRestaurantCategories ? (
+                      <span className="text-[16px] text-text-muted">
+                        Loading restaurant types...
+                      </span>
+                    ) : restaurantType.length === 0 ? (
+                      <span className="text-[16px] text-text-muted">
+                        Select restaurant type...
+                      </span>
+                    ) : (
+                      restaurantType.map((selectedId) => {
+                        const category = restaurantCategories.find(
+                          (item) => String(item.id) === selectedId,
+                        );
 
-                {restaurantCategories.map((category) => (
-                  <option key={category.id} value={String(category.id)}>
-                    {category.res_category}
-                  </option>
-                ))}
-              </select>
+                        if (!category) return null;
+
+                        return (
+                          <span
+                            key={selectedId}
+                            className="inline-flex items-center gap-1.5 rounded-full bg-primary-light px-3 py-1 text-sm font-medium text-white"
+                          >
+                            {category.res_category}
+
+                            <span
+                              role="button"
+                              tabIndex={0}
+                              onClick={(event) => {
+                                event.stopPropagation();
+
+                                setRestaurantType((previous) =>
+                                  previous.filter((id) => id !== selectedId),
+                                );
+                              }}
+                              onKeyDown={(event) => {
+                                if (
+                                  event.key === "Enter" ||
+                                  event.key === " "
+                                ) {
+                                  event.preventDefault();
+                                  event.stopPropagation();
+
+                                  setRestaurantType((previous) =>
+                                    previous.filter((id) => id !== selectedId),
+                                  );
+                                }
+                              }}
+                              className="cursor-pointer rounded-full p-0.5 transition hover:bg-primary hover:text-white"
+                              aria-label={`Remove ${category.res_category}`}
+                            >
+                              <X size={13} />
+                            </span>
+                          </span>
+                        );
+                      })
+                    )}
+                  </div>
+
+                  <ChevronDown
+                    size={20}
+                    className={`shrink-0 text-text-secondary transition-transform duration-200 ${
+                      restaurantTypeOpen ? "rotate-180" : ""
+                    }`}
+                  />
+                </button>
+
+                {/* Dropdown */}
+                {restaurantTypeOpen && !loadingRestaurantCategories && (
+                  <div className="absolute left-0 right-0 z-50 mt-2 overflow-hidden rounded-md border border-border bg-white shadow-lg">
+                    {/* Header */}
+                    <div className="flex items-center justify-between border-b border-border px-4 py-3">
+                      <span className="text-sm font-semibold text-text-primary">
+                        Select Restaurant Types
+                      </span>
+
+                      {restaurantType.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => setRestaurantType([])}
+                          className="text-xs font-medium text-secondary transition hover:text-primary"
+                        >
+                          Clear all
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Options */}
+                    <div className="max-h-60 overflow-y-auto py-1">
+                      {restaurantCategories.map((category) => {
+                        const categoryId = String(category.id);
+                        const isSelected = restaurantType.includes(categoryId);
+
+                        return (
+                          <button
+                            key={category.id}
+                            type="button"
+                            onClick={() => {
+                              setRestaurantType((previous) => {
+                                if (previous.includes(categoryId)) {
+                                  return previous.filter(
+                                    (id) => id !== categoryId,
+                                  );
+                                }
+
+                                return [...previous, categoryId];
+                              });
+                            }}
+                            className={`flex w-full items-center justify-between px-4 py-3 text-left text-sm transition ${
+                              isSelected
+                                ? "bg-primary-light text-white"
+                                : "text-text-primary hover:bg-surface"
+                            }`}
+                          >
+                            <span>{category.res_category}</span>
+
+                            <span
+                              className={`flex h-5 w-5 items-center justify-center rounded border transition ${
+                                isSelected
+                                  ? "border-primary bg-primary text-white"
+                                  : "border-border bg-white"
+                              }`}
+                            >
+                              {isSelected && (
+                                <Check size={14} strokeWidth={3} />
+                              )}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Selection information */}
+              <div className="mt-2 flex items-center justify-between">
+                <p className="text-xs text-text-muted">
+                  {restaurantType.length === 0
+                    ? "Select one or more restaurant types."
+                    : `${restaurantType.length} restaurant type${
+                        restaurantType.length > 1 ? "s" : ""
+                      } selected`}
+                </p>
+
+                {restaurantType.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setRestaurantType([])}
+                    className="text-xs font-medium text-secondary hover:text-primary"
+                  >
+                    Clear
+                  </button>
+                )}
+              </div>
             </div>
 
             {/* Email */}

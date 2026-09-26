@@ -223,41 +223,125 @@ router.post(
       connection = await db.getConnection();
       await connection.beginTransaction();
 
-      // =========================================================
-      // VALIDATE RESTAURANT CATEGORY ID
-      // =========================================================
+    // =========================================================
+// VALIDATE RESTAURANT TYPES
+// =========================================================
 
-      const restaurantCategoryId = Number(restaurantType);
+let restaurantTypeIds;
 
-      if (
-        !Number.isInteger(restaurantCategoryId) ||
-        restaurantCategoryId < 1
-      ) {
-        await connection.rollback();
+try {
+  restaurantTypeIds = JSON.parse(restaurantType);
+} catch (error) {
+  await connection.rollback();
 
-        if (req.file) {
-          fs.unlinkSync(req.file.path);
-        }
-
-        return res.status(400).json({
-          success: false,
-          message: "Please select a valid restaurant type.",
-        });
+  if (req.file) {
+    try {
+      if (fs.existsSync(req.file.path)) {
+        fs.unlinkSync(req.file.path);
       }
+    } catch (fileError) {
+      console.error("Failed to delete uploaded logo:", fileError);
+    }
+  }
+
+  return res.status(400).json({
+    success: false,
+    message: "Invalid restaurant type selection.",
+  });
+}
+
+// Must be an array
+if (!Array.isArray(restaurantTypeIds) || restaurantTypeIds.length === 0) {
+  await connection.rollback();
+
+  if (req.file) {
+    try {
+      if (fs.existsSync(req.file.path)) {
+        fs.unlinkSync(req.file.path);
+      }
+    } catch (fileError) {
+      console.error("Failed to delete uploaded logo:", fileError);
+    }
+  }
+
+  return res.status(400).json({
+    success: false,
+    message: "Please select at least one restaurant type.",
+  });
+}
+
+// Convert IDs to numbers
+restaurantTypeIds = restaurantTypeIds.map((id) => Number(id));
+
+// Validate every ID
+const hasInvalidRestaurantType = restaurantTypeIds.some(
+  (id) => !Number.isInteger(id) || id < 1
+);
+
+if (hasInvalidRestaurantType) {
+  await connection.rollback();
+
+  if (req.file) {
+    try {
+      if (fs.existsSync(req.file.path)) {
+        fs.unlinkSync(req.file.path);
+      }
+    } catch (fileError) {
+      console.error("Failed to delete uploaded logo:", fileError);
+    }
+  }
+
+  return res.status(400).json({
+    success: false,
+    message: "One or more restaurant types are invalid.",
+  });
+}
+
+// Remove duplicate IDs
+restaurantTypeIds = [...new Set(restaurantTypeIds)];
 
       // =========================================================
-      // CHECK RESTAURANT CATEGORY EXISTS
-      // =========================================================
+// CHECK ALL RESTAURANT CATEGORIES EXIST
+// =========================================================
 
-      const [restaurantCategoryRows] = await connection.execute(
-        `
-          SELECT id
-          FROM restaurant_category
-          WHERE id = ?
-          LIMIT 1
-        `,
-        [restaurantCategoryId]
-      );
+const placeholders = restaurantTypeIds.map(() => "?").join(", ");
+
+const [restaurantCategoryRows] = await connection.execute(
+  `
+    SELECT id
+    FROM restaurant_category
+    WHERE id IN (${placeholders})
+  `,
+  restaurantTypeIds
+);
+
+const existingCategoryIds = restaurantCategoryRows.map((row) =>
+  Number(row.id)
+);
+
+const invalidCategoryIds = restaurantTypeIds.filter(
+  (id) => !existingCategoryIds.includes(id)
+);
+
+if (invalidCategoryIds.length > 0) {
+  await connection.rollback();
+
+  if (req.file) {
+    try {
+      if (fs.existsSync(req.file.path)) {
+        fs.unlinkSync(req.file.path);
+      }
+    } catch (fileError) {
+      console.error("Failed to delete uploaded logo:", fileError);
+    }
+  }
+
+  return res.status(400).json({
+    success: false,
+    message: "One or more selected restaurant types do not exist.",
+    invalidRestaurantTypeIds: invalidCategoryIds,
+  });
+}
 
       if (restaurantCategoryRows.length === 0) {
         await connection.rollback();
@@ -382,7 +466,7 @@ router.post(
           finalBranchCount, // Same value as branchCount
           hashedPassword,
           softwareApiKey,
-          Number(restaurantType),
+          JSON.stringify(restaurantTypeIds),
           address,
           logoPath,
         ]
@@ -438,7 +522,7 @@ await connection.execute(
           branchCount: finalBranchCount,
           branchCount_Remaining: finalBranchCount,
           softwareApiKey,
-          restaurantType,
+          restaurantType: restaurantTypeIds,
           address,
           logo: logoPath,
         },

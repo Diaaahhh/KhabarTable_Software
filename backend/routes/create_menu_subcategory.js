@@ -4,31 +4,129 @@ import db from "../db.js";
 const router = express.Router();
 
 /**
- * --------------------------------------------------------------------------
- * Get restaurant_type from cookie
- * --------------------------------------------------------------------------
+ * ============================================================================
+ * Helper: Parse restaurant_type
+ * ============================================================================
+ *
+ * Supported values:
+ *
+ * [4,3,5]
+ * "[4,3,5]"
+ * ["4","3","5"]
+ * '["4","3","5"]'
+ *
+ * Also supports an old single value such as:
+ *
+ * 4
+ * "4"
+ *
+ * This makes the API more backward-compatible.
  */
-function getRestaurantTypeFromCookie(req) {
+function normalizeRestaurantTypes(value) {
+  if (value === null || value === undefined || value === "") {
+    return null;
+  }
+
+  let parsedValue = value;
+
+  // If value is a string, try to decode + parse JSON
+  if (typeof parsedValue === "string") {
+    try {
+      parsedValue = JSON.parse(decodeURIComponent(parsedValue));
+    } catch {
+      // Backward compatibility for a single numeric value
+      const singleValue = Number(parsedValue);
+
+      if (Number.isInteger(singleValue) && singleValue > 0) {
+        return [singleValue];
+      }
+
+      return null;
+    }
+  }
+
+  // If somehow another JSON string remains, parse it again
+  if (typeof parsedValue === "string") {
+    try {
+      parsedValue = JSON.parse(parsedValue);
+    } catch {
+      return null;
+    }
+  }
+
+  // If database/cookie gives a single number, convert to array
+  if (!Array.isArray(parsedValue)) {
+    parsedValue = [parsedValue];
+  }
+
+  const restaurantTypeIds = parsedValue.map((id) => Number(id));
+
+  // Every value must be a valid positive integer
+  if (
+    restaurantTypeIds.length === 0 ||
+    restaurantTypeIds.some(
+      (id) => !Number.isInteger(id) || id < 1
+    )
+  ) {
+    return null;
+  }
+
+  // Remove duplicates
+  return [...new Set(restaurantTypeIds)];
+}
+
+/**
+ * ============================================================================
+ * Get restaurant_type from cookie
+ * ============================================================================
+ */
+function getRestaurantTypesFromCookie(req) {
   if (!req.cookies) {
     return null;
   }
 
-  // Direct cookie
-  if (req.cookies.restaurant_type) {
-    return req.cookies.restaurant_type;
+  // --------------------------------------------------------------------------
+  // Direct restaurant_type cookie
+  // --------------------------------------------------------------------------
+
+  if (req.cookies.restaurant_type !== undefined) {
+    const restaurantTypes = normalizeRestaurantTypes(
+      req.cookies.restaurant_type
+    );
+
+    if (restaurantTypes) {
+      return restaurantTypes;
+    }
   }
 
+  // --------------------------------------------------------------------------
   // Check cookies that may contain JSON user data
+  // --------------------------------------------------------------------------
+
   for (const cookieValue of Object.values(req.cookies)) {
     try {
-      const decodedValue = decodeURIComponent(cookieValue);
-      const parsedValue = JSON.parse(decodedValue);
+      let decodedValue = cookieValue;
+
+      if (typeof decodedValue === "string") {
+        decodedValue = decodeURIComponent(decodedValue);
+      }
+
+      const parsedValue =
+        typeof decodedValue === "string"
+          ? JSON.parse(decodedValue)
+          : decodedValue;
 
       if (
         parsedValue &&
         parsedValue.restaurant_type !== undefined
       ) {
-        return parsedValue.restaurant_type;
+        const restaurantTypes = normalizeRestaurantTypes(
+          parsedValue.restaurant_type
+        );
+
+        if (restaurantTypes) {
+          return restaurantTypes;
+        }
       }
     } catch {
       // Ignore cookies that are not JSON
@@ -39,28 +137,49 @@ function getRestaurantTypeFromCookie(req) {
 }
 
 /**
- * --------------------------------------------------------------------------
+ * ============================================================================
+ * Helper: Build SQL placeholders for restaurant types
+ * ============================================================================
+ *
+ * Example:
+ *
+ * restaurantTypes = [4,3,5]
+ *
+ * returns:
+ *
+ * "?,?,?"
+ */
+function buildPlaceholders(values) {
+  return values.map(() => "?").join(",");
+}
+
+/**
+ * ============================================================================
  * GET /api/menu-subcategories
- * --------------------------------------------------------------------------
+ * ============================================================================
+ *
  * Fetch:
- * - Menu categories according to restaurant type
+ * - Menu categories according to ALL restaurant types
  * - All ingredients
- * --------------------------------------------------------------------------
+ * ============================================================================
  */
 router.get("/", async (req, res) => {
   try {
-    const restaurantType = getRestaurantTypeFromCookie(req);
+    const restaurantTypes = getRestaurantTypesFromCookie(req);
 
-    if (!restaurantType) {
+    if (!restaurantTypes || restaurantTypes.length === 0) {
       return res.status(401).json({
         success: false,
         message: "Restaurant type not found in cookie.",
       });
     }
 
-    // -----------------------------------------------------------------------
+    const placeholders = buildPlaceholders(restaurantTypes);
+
+    // ------------------------------------------------------------------------
     // Fetch Menu Categories
-    // -----------------------------------------------------------------------
+    // ------------------------------------------------------------------------
+
     const [menuCategories] = await db.query(
       `
         SELECT
@@ -68,15 +187,16 @@ router.get("/", async (req, res) => {
           category_name,
           Restaurant_category_id
         FROM menu_category
-        WHERE Restaurant_category_id = ?
+        WHERE Restaurant_category_id IN (${placeholders})
         ORDER BY category_name ASC
       `,
-      [restaurantType],
+      restaurantTypes
     );
 
-    // -----------------------------------------------------------------------
+    // ------------------------------------------------------------------------
     // Fetch Ingredients
-    // -----------------------------------------------------------------------
+    // ------------------------------------------------------------------------
+
     const [ingredients] = await db.query(
       `
         SELECT
@@ -86,12 +206,13 @@ router.get("/", async (req, res) => {
           cost_per_unit
         FROM menu_ingredients
         ORDER BY ingredient_name ASC
-      `,
+      `
     );
 
     return res.status(200).json({
       success: true,
       data: {
+        restaurantTypes,
         menuCategories,
         ingredients,
       },
@@ -99,7 +220,7 @@ router.get("/", async (req, res) => {
   } catch (error) {
     console.error(
       "Error fetching menu subcategory data:",
-      error,
+      error
     );
 
     return res.status(500).json({
@@ -110,26 +231,30 @@ router.get("/", async (req, res) => {
 });
 
 /**
- * --------------------------------------------------------------------------
+ * ============================================================================
  * GET /api/menu-subcategories/list
- * --------------------------------------------------------------------------
- * Fetch table data:
+ * ============================================================================
  *
- * Category
- * Sub Menu
- * Ingredients
- * --------------------------------------------------------------------------
+ * Fetch:
+ * - Category
+ * - Sub Menu
+ * - Ingredients
+ *
+ * Only sub-menus belonging to the user's selected restaurant types.
+ * ============================================================================
  */
 router.get("/list", async (req, res) => {
   try {
-    const restaurantType = getRestaurantTypeFromCookie(req);
+    const restaurantTypes = getRestaurantTypesFromCookie(req);
 
-    if (!restaurantType) {
+    if (!restaurantTypes || restaurantTypes.length === 0) {
       return res.status(401).json({
         success: false,
         message: "Restaurant type not found in cookie.",
       });
     }
+
+    const placeholders = buildPlaceholders(restaurantTypes);
 
     const [rows] = await db.query(
       `
@@ -137,7 +262,9 @@ router.get("/list", async (req, res) => {
           msc.id,
           msc.menu_category_id,
           mc.category_name,
+          mc.Restaurant_category_id,
           msc.menu_name,
+
           COALESCE(
             GROUP_CONCAT(
               DISTINCT mi.ingredient_name
@@ -146,6 +273,7 @@ router.get("/list", async (req, res) => {
             ),
             ''
           ) AS ingredients
+
         FROM menu_subcategory msc
 
         INNER JOIN menu_category mc
@@ -157,17 +285,18 @@ router.get("/list", async (req, res) => {
         LEFT JOIN menu_ingredients mi
           ON mi.id = msci.ingredient_id
 
-        WHERE mc.Restaurant_category_id = ?
+        WHERE mc.Restaurant_category_id IN (${placeholders})
 
         GROUP BY
           msc.id,
           msc.menu_category_id,
           mc.category_name,
+          mc.Restaurant_category_id,
           msc.menu_name
 
         ORDER BY msc.id DESC
       `,
-      [restaurantType],
+      restaurantTypes
     );
 
     return res.status(200).json({
@@ -177,7 +306,7 @@ router.get("/list", async (req, res) => {
   } catch (error) {
     console.error(
       "Error fetching menu subcategory list:",
-      error,
+      error
     );
 
     return res.status(500).json({
@@ -188,18 +317,21 @@ router.get("/list", async (req, res) => {
 });
 
 /**
- * --------------------------------------------------------------------------
+ * ============================================================================
  * GET /api/menu-subcategories/:id
- * --------------------------------------------------------------------------
- * Fetch one sub-menu including its ingredients
- * --------------------------------------------------------------------------
+ * ============================================================================
+ *
+ * Fetch one sub-menu including its ingredients.
+ * ============================================================================
  */
 router.get("/:id", async (req, res) => {
   try {
     const id = Number(req.params.id);
-    const restaurantType = getRestaurantTypeFromCookie(req);
 
-    if (!restaurantType) {
+    const restaurantTypes =
+      getRestaurantTypesFromCookie(req);
+
+    if (!restaurantTypes || restaurantTypes.length === 0) {
       return res.status(401).json({
         success: false,
         message: "Restaurant type not found in cookie.",
@@ -213,24 +345,28 @@ router.get("/:id", async (req, res) => {
       });
     }
 
+    const placeholders = buildPlaceholders(restaurantTypes);
+
     const [rows] = await db.query(
       `
         SELECT
           msc.id,
           msc.menu_category_id,
           msc.menu_name,
-          mc.category_name
+          mc.category_name,
+          mc.Restaurant_category_id
+
         FROM menu_subcategory msc
 
         INNER JOIN menu_category mc
           ON mc.id = msc.menu_category_id
 
         WHERE msc.id = ?
-          AND mc.Restaurant_category_id = ?
+          AND mc.Restaurant_category_id IN (${placeholders})
 
         LIMIT 1
       `,
-      [id, restaurantType],
+      [id, ...restaurantTypes]
     );
 
     if (rows.length === 0) {
@@ -247,7 +383,7 @@ router.get("/:id", async (req, res) => {
         FROM menu_subcategory_ingredients
         WHERE menu_subcategory_id = ?
       `,
-      [id],
+      [id]
     );
 
     return res.status(200).json({
@@ -255,14 +391,14 @@ router.get("/:id", async (req, res) => {
       data: {
         ...rows[0],
         ingredients: ingredientRows.map(
-          (row) => row.ingredient_id,
+          (row) => row.ingredient_id
         ),
       },
     });
   } catch (error) {
     console.error(
       "Error fetching sub-menu:",
-      error,
+      error
     );
 
     return res.status(500).json({
@@ -273,22 +409,25 @@ router.get("/:id", async (req, res) => {
 });
 
 /**
- * --------------------------------------------------------------------------
+ * ============================================================================
  * POST /api/menu-subcategories
- * --------------------------------------------------------------------------
+ * ============================================================================
+ *
  * Create:
  * 1. menu_subcategory
  * 2. multiple menu_subcategory_ingredients
- * --------------------------------------------------------------------------
+ * ============================================================================
  */
 router.post("/", async (req, res) => {
   const connection = await db.getConnection();
 
-  try {
-    const restaurantType =
-      getRestaurantTypeFromCookie(req);
+  let transactionStarted = false;
 
-    if (!restaurantType) {
+  try {
+    const restaurantTypes =
+      getRestaurantTypesFromCookie(req);
+
+    if (!restaurantTypes || restaurantTypes.length === 0) {
       return res.status(401).json({
         success: false,
         message: "Restaurant type not found in cookie.",
@@ -301,10 +440,16 @@ router.post("/", async (req, res) => {
       ingredients,
     } = req.body;
 
-    // -----------------------------------------------------------------------
+    // ------------------------------------------------------------------------
     // Validation
-    // -----------------------------------------------------------------------
-    if (!menu_category_id) {
+    // ------------------------------------------------------------------------
+
+    const menuCategoryId = Number(menu_category_id);
+
+    if (
+      !Number.isInteger(menuCategoryId) ||
+      menuCategoryId < 1
+    ) {
       return res.status(400).json({
         success: false,
         message: "Menu category is required.",
@@ -328,39 +473,61 @@ router.post("/", async (req, res) => {
       });
     }
 
-    // -----------------------------------------------------------------------
+    const placeholders =
+      buildPlaceholders(restaurantTypes);
+
+    // ------------------------------------------------------------------------
     // Check Menu Category
-    // -----------------------------------------------------------------------
+    // ------------------------------------------------------------------------
+    //
+    // IMPORTANT:
+    //
+    // The category can belong to ANY restaurant type selected
+    // by the company.
+    //
+    // Example:
+    //
+    // restaurant_type = [4,3,5]
+    //
+    // category Restaurant_category_id can be:
+    //
+    // 4 OR 3 OR 5
+    // ------------------------------------------------------------------------
+
     const [categoryRows] = await connection.query(
       `
-        SELECT id
+        SELECT
+          id,
+          Restaurant_category_id
         FROM menu_category
         WHERE id = ?
-          AND Restaurant_category_id = ?
+          AND Restaurant_category_id IN (${placeholders})
         LIMIT 1
       `,
-      [menu_category_id, restaurantType],
+      [menuCategoryId, ...restaurantTypes]
     );
 
     if (categoryRows.length === 0) {
       return res.status(400).json({
         success: false,
         message:
-          "Selected menu category does not belong to your restaurant type.",
+          "Selected menu category does not belong to your restaurant types.",
       });
     }
 
-    // -----------------------------------------------------------------------
+    // ------------------------------------------------------------------------
     // Clean Ingredient IDs
-    // -----------------------------------------------------------------------
+    // ------------------------------------------------------------------------
+
     const ingredientIds = [
       ...new Set(
         ingredients
           .map((id) => Number(id))
           .filter(
             (id) =>
-              Number.isInteger(id) && id > 0,
-          ),
+              Number.isInteger(id) &&
+              id > 0
+          )
       ),
     ];
 
@@ -371,21 +538,21 @@ router.post("/", async (req, res) => {
       });
     }
 
-    // -----------------------------------------------------------------------
+    // ------------------------------------------------------------------------
     // Check Ingredients Exist
-    // -----------------------------------------------------------------------
-    const placeholders = ingredientIds
-      .map(() => "?")
-      .join(",");
+    // ------------------------------------------------------------------------
+
+    const ingredientPlaceholders =
+      buildPlaceholders(ingredientIds);
 
     const [ingredientRows] =
       await connection.query(
         `
           SELECT id
           FROM menu_ingredients
-          WHERE id IN (${placeholders})
+          WHERE id IN (${ingredientPlaceholders})
         `,
-        ingredientIds,
+        ingredientIds
       );
 
     if (
@@ -399,9 +566,10 @@ router.post("/", async (req, res) => {
       });
     }
 
-    // -----------------------------------------------------------------------
+    // ------------------------------------------------------------------------
     // Check Duplicate Menu Name
-    // -----------------------------------------------------------------------
+    // ------------------------------------------------------------------------
+
     const [duplicateRows] =
       await connection.query(
         `
@@ -412,9 +580,9 @@ router.post("/", async (req, res) => {
           LIMIT 1
         `,
         [
-          menu_category_id,
+          menuCategoryId,
           menu_name.trim(),
-        ],
+        ]
       );
 
     if (duplicateRows.length > 0) {
@@ -425,14 +593,17 @@ router.post("/", async (req, res) => {
       });
     }
 
-    // -----------------------------------------------------------------------
+    // ------------------------------------------------------------------------
     // Start Transaction
-    // -----------------------------------------------------------------------
-    await connection.beginTransaction();
+    // ------------------------------------------------------------------------
 
-    // -----------------------------------------------------------------------
+    await connection.beginTransaction();
+    transactionStarted = true;
+
+    // ------------------------------------------------------------------------
     // Insert Menu Subcategory
-    // -----------------------------------------------------------------------
+    // ------------------------------------------------------------------------
+
     const [subcategoryResult] =
       await connection.query(
         `
@@ -443,23 +614,24 @@ router.post("/", async (req, res) => {
           VALUES (?, ?)
         `,
         [
-          menu_category_id,
+          menuCategoryId,
           menu_name.trim(),
-        ],
+        ]
       );
 
     const menuSubcategoryId =
       subcategoryResult.insertId;
 
-    // -----------------------------------------------------------------------
+    // ------------------------------------------------------------------------
     // Insert Ingredients
-    // -----------------------------------------------------------------------
+    // ------------------------------------------------------------------------
+
     const ingredientValues =
       ingredientIds.map(
         (ingredientId) => [
           menuSubcategoryId,
           ingredientId,
-        ],
+        ]
       );
 
     await connection.query(
@@ -470,13 +642,15 @@ router.post("/", async (req, res) => {
         )
         VALUES ?
       `,
-      [ingredientValues],
+      [ingredientValues]
     );
 
-    // -----------------------------------------------------------------------
+    // ------------------------------------------------------------------------
     // Commit
-    // -----------------------------------------------------------------------
+    // ------------------------------------------------------------------------
+
     await connection.commit();
+    transactionStarted = false;
 
     return res.status(201).json({
       success: true,
@@ -485,17 +659,21 @@ router.post("/", async (req, res) => {
       data: {
         id: menuSubcategoryId,
         menu_category_id:
-          Number(menu_category_id),
-        menu_name: menu_name.trim(),
-        ingredients: ingredientIds,
+          menuCategoryId,
+        menu_name:
+          menu_name.trim(),
+        ingredients:
+          ingredientIds,
       },
     });
   } catch (error) {
-    await connection.rollback();
+    if (transactionStarted) {
+      await connection.rollback();
+    }
 
     console.error(
       "Error creating menu subcategory:",
-      error,
+      error
     );
 
     return res.status(500).json({
@@ -509,25 +687,28 @@ router.post("/", async (req, res) => {
 });
 
 /**
- * --------------------------------------------------------------------------
+ * ============================================================================
  * PUT /api/menu-subcategories/:id
- * --------------------------------------------------------------------------
+ * ============================================================================
+ *
  * Update:
  * - Menu category
  * - Menu name
  * - Ingredients
- * --------------------------------------------------------------------------
+ * ============================================================================
  */
 router.put("/:id", async (req, res) => {
   const connection = await db.getConnection();
 
+  let transactionStarted = false;
+
   try {
     const id = Number(req.params.id);
 
-    const restaurantType =
-      getRestaurantTypeFromCookie(req);
+    const restaurantTypes =
+      getRestaurantTypesFromCookie(req);
 
-    if (!restaurantType) {
+    if (!restaurantTypes || restaurantTypes.length === 0) {
       return res.status(401).json({
         success: false,
         message: "Restaurant type not found in cookie.",
@@ -537,7 +718,8 @@ router.put("/:id", async (req, res) => {
     if (!Number.isInteger(id) || id < 1) {
       return res.status(400).json({
         success: false,
-        message: "Valid sub-menu ID is required.",
+        message:
+          "Valid sub-menu ID is required.",
       });
     }
 
@@ -547,10 +729,17 @@ router.put("/:id", async (req, res) => {
       ingredients,
     } = req.body;
 
-    // -----------------------------------------------------------------------
+    const menuCategoryId =
+      Number(menu_category_id);
+
+    // ------------------------------------------------------------------------
     // Validate
-    // -----------------------------------------------------------------------
-    if (!menu_category_id) {
+    // ------------------------------------------------------------------------
+
+    if (
+      !Number.isInteger(menuCategoryId) ||
+      menuCategoryId < 1
+    ) {
       return res.status(400).json({
         success: false,
         message: "Menu category is required.",
@@ -575,68 +764,77 @@ router.put("/:id", async (req, res) => {
       });
     }
 
-    // -----------------------------------------------------------------------
-    // Check category belongs to restaurant type
-    // -----------------------------------------------------------------------
+    const restaurantPlaceholders =
+      buildPlaceholders(restaurantTypes);
+
+    // ------------------------------------------------------------------------
+    // Check selected category belongs to one of user's restaurant types
+    // ------------------------------------------------------------------------
+
     const [categoryRows] =
       await connection.query(
         `
-          SELECT id
+          SELECT
+            id,
+            Restaurant_category_id
           FROM menu_category
           WHERE id = ?
-            AND Restaurant_category_id = ?
+            AND Restaurant_category_id IN (${restaurantPlaceholders})
           LIMIT 1
         `,
         [
-          menu_category_id,
-          restaurantType,
-        ],
+          menuCategoryId,
+          ...restaurantTypes,
+        ]
       );
 
     if (categoryRows.length === 0) {
       return res.status(400).json({
         success: false,
         message:
-          "Selected menu category does not belong to your restaurant type.",
+          "Selected menu category does not belong to your restaurant types.",
       });
     }
 
-    // -----------------------------------------------------------------------
-    // Clean ingredients
-    // -----------------------------------------------------------------------
+    // ------------------------------------------------------------------------
+    // Clean Ingredients
+    // ------------------------------------------------------------------------
+
     const ingredientIds = [
       ...new Set(
         ingredients
           .map((id) => Number(id))
           .filter(
             (id) =>
-              Number.isInteger(id) && id > 0,
-          ),
+              Number.isInteger(id) &&
+              id > 0
+          )
       ),
     ];
 
     if (ingredientIds.length === 0) {
       return res.status(400).json({
         success: false,
-        message: "Valid ingredients are required.",
+        message:
+          "Valid ingredients are required.",
       });
     }
 
-    // -----------------------------------------------------------------------
-    // Check ingredients
-    // -----------------------------------------------------------------------
-    const placeholders = ingredientIds
-      .map(() => "?")
-      .join(",");
+    // ------------------------------------------------------------------------
+    // Check Ingredients
+    // ------------------------------------------------------------------------
+
+    const ingredientPlaceholders =
+      buildPlaceholders(ingredientIds);
 
     const [ingredientRows] =
       await connection.query(
         `
           SELECT id
           FROM menu_ingredients
-          WHERE id IN (${placeholders})
+          WHERE id IN (${ingredientPlaceholders})
         `,
-        ingredientIds,
+        ingredientIds
       );
 
     if (
@@ -650,10 +848,10 @@ router.put("/:id", async (req, res) => {
       });
     }
 
-    // -----------------------------------------------------------------------
-    // Check duplicate name
-    // Exclude current sub-menu
-    // -----------------------------------------------------------------------
+    // ------------------------------------------------------------------------
+    // Check Duplicate Name
+    // ------------------------------------------------------------------------
+
     const [duplicateRows] =
       await connection.query(
         `
@@ -665,10 +863,10 @@ router.put("/:id", async (req, res) => {
           LIMIT 1
         `,
         [
-          menu_category_id,
+          menuCategoryId,
           menu_name.trim(),
           id,
-        ],
+        ]
       );
 
     if (duplicateRows.length > 0) {
@@ -679,22 +877,29 @@ router.put("/:id", async (req, res) => {
       });
     }
 
-    // -----------------------------------------------------------------------
-    // Check sub-menu belongs to restaurant type
-    // -----------------------------------------------------------------------
+    // ------------------------------------------------------------------------
+    // Check Existing Sub-menu belongs to user's restaurant types
+    // ------------------------------------------------------------------------
+
     const [existingRows] =
       await connection.query(
         `
           SELECT
             msc.id
           FROM menu_subcategory msc
+
           INNER JOIN menu_category mc
             ON mc.id = msc.menu_category_id
+
           WHERE msc.id = ?
-            AND mc.Restaurant_category_id = ?
+            AND mc.Restaurant_category_id IN (${restaurantPlaceholders})
+
           LIMIT 1
         `,
-        [id, restaurantType],
+        [
+          id,
+          ...restaurantTypes,
+        ]
       );
 
     if (existingRows.length === 0) {
@@ -705,14 +910,17 @@ router.put("/:id", async (req, res) => {
       });
     }
 
-    // -----------------------------------------------------------------------
-    // Start transaction
-    // -----------------------------------------------------------------------
-    await connection.beginTransaction();
+    // ------------------------------------------------------------------------
+    // Start Transaction
+    // ------------------------------------------------------------------------
 
-    // -----------------------------------------------------------------------
-    // Update sub-menu
-    // -----------------------------------------------------------------------
+    await connection.beginTransaction();
+    transactionStarted = true;
+
+    // ------------------------------------------------------------------------
+    // Update Sub-menu
+    // ------------------------------------------------------------------------
+
     await connection.query(
       `
         UPDATE menu_subcategory
@@ -722,32 +930,34 @@ router.put("/:id", async (req, res) => {
         WHERE id = ?
       `,
       [
-        menu_category_id,
+        menuCategoryId,
         menu_name.trim(),
         id,
-      ],
+      ]
     );
 
-    // -----------------------------------------------------------------------
-    // Remove old ingredients
-    // -----------------------------------------------------------------------
+    // ------------------------------------------------------------------------
+    // Remove Old Ingredients
+    // ------------------------------------------------------------------------
+
     await connection.query(
       `
         DELETE FROM menu_subcategory_ingredients
         WHERE menu_subcategory_id = ?
       `,
-      [id],
+      [id]
     );
 
-    // -----------------------------------------------------------------------
-    // Insert new ingredients
-    // -----------------------------------------------------------------------
+    // ------------------------------------------------------------------------
+    // Insert New Ingredients
+    // ------------------------------------------------------------------------
+
     const ingredientValues =
       ingredientIds.map(
         (ingredientId) => [
           id,
           ingredientId,
-        ],
+        ]
       );
 
     await connection.query(
@@ -758,13 +968,15 @@ router.put("/:id", async (req, res) => {
         )
         VALUES ?
       `,
-      [ingredientValues],
+      [ingredientValues]
     );
 
-    // -----------------------------------------------------------------------
+    // ------------------------------------------------------------------------
     // Commit
-    // -----------------------------------------------------------------------
+    // ------------------------------------------------------------------------
+
     await connection.commit();
+    transactionStarted = false;
 
     return res.status(200).json({
       success: true,
@@ -773,17 +985,21 @@ router.put("/:id", async (req, res) => {
       data: {
         id,
         menu_category_id:
-          Number(menu_category_id),
-        menu_name: menu_name.trim(),
-        ingredients: ingredientIds,
+          menuCategoryId,
+        menu_name:
+          menu_name.trim(),
+        ingredients:
+          ingredientIds,
       },
     });
   } catch (error) {
-    await connection.rollback();
+    if (transactionStarted) {
+      await connection.rollback();
+    }
 
     console.error(
       "Error updating menu subcategory:",
-      error,
+      error
     );
 
     return res.status(500).json({
@@ -797,24 +1013,27 @@ router.put("/:id", async (req, res) => {
 });
 
 /**
- * --------------------------------------------------------------------------
+ * ============================================================================
  * DELETE /api/menu-subcategories/:id
- * --------------------------------------------------------------------------
+ * ============================================================================
+ *
  * Delete:
  * - menu_subcategory_ingredients
  * - menu_subcategory
- * --------------------------------------------------------------------------
+ * ============================================================================
  */
 router.delete("/:id", async (req, res) => {
   const connection = await db.getConnection();
 
+  let transactionStarted = false;
+
   try {
     const id = Number(req.params.id);
 
-    const restaurantType =
-      getRestaurantTypeFromCookie(req);
+    const restaurantTypes =
+      getRestaurantTypesFromCookie(req);
 
-    if (!restaurantType) {
+    if (!restaurantTypes || restaurantTypes.length === 0) {
       return res.status(401).json({
         success: false,
         message:
@@ -830,23 +1049,34 @@ router.delete("/:id", async (req, res) => {
       });
     }
 
-    // -----------------------------------------------------------------------
-    // Check sub-menu belongs to restaurant type
-    // -----------------------------------------------------------------------
+    const placeholders =
+      buildPlaceholders(restaurantTypes);
+
+    // ------------------------------------------------------------------------
+    // Check Sub-menu belongs to user's restaurant types
+    // ------------------------------------------------------------------------
+
     const [existingRows] =
       await connection.query(
         `
           SELECT
             msc.id,
-            msc.menu_name
+            msc.menu_name,
+            mc.Restaurant_category_id
           FROM menu_subcategory msc
+
           INNER JOIN menu_category mc
             ON mc.id = msc.menu_category_id
+
           WHERE msc.id = ?
-            AND mc.Restaurant_category_id = ?
+            AND mc.Restaurant_category_id IN (${placeholders})
+
           LIMIT 1
         `,
-        [id, restaurantType],
+        [
+          id,
+          ...restaurantTypes,
+        ]
       );
 
     if (existingRows.length === 0) {
@@ -857,31 +1087,43 @@ router.delete("/:id", async (req, res) => {
       });
     }
 
-    await connection.beginTransaction();
+    // ------------------------------------------------------------------------
+    // Start Transaction
+    // ------------------------------------------------------------------------
 
-    // -----------------------------------------------------------------------
-    // Delete ingredient relations
-    // -----------------------------------------------------------------------
+    await connection.beginTransaction();
+    transactionStarted = true;
+
+    // ------------------------------------------------------------------------
+    // Delete Ingredient Relations
+    // ------------------------------------------------------------------------
+
     await connection.query(
       `
         DELETE FROM menu_subcategory_ingredients
         WHERE menu_subcategory_id = ?
       `,
-      [id],
+      [id]
     );
 
-    // -----------------------------------------------------------------------
-    // Delete sub-menu
-    // -----------------------------------------------------------------------
+    // ------------------------------------------------------------------------
+    // Delete Sub-menu
+    // ------------------------------------------------------------------------
+
     await connection.query(
       `
         DELETE FROM menu_subcategory
         WHERE id = ?
       `,
-      [id],
+      [id]
     );
 
+    // ------------------------------------------------------------------------
+    // Commit
+    // ------------------------------------------------------------------------
+
     await connection.commit();
+    transactionStarted = false;
 
     return res.status(200).json({
       success: true,
@@ -889,11 +1131,13 @@ router.delete("/:id", async (req, res) => {
         "Sub-menu deleted successfully.",
     });
   } catch (error) {
-    await connection.rollback();
+    if (transactionStarted) {
+      await connection.rollback();
+    }
 
     console.error(
       "Error deleting menu subcategory:",
-      error,
+      error
     );
 
     return res.status(500).json({
