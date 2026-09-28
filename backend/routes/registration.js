@@ -143,6 +143,63 @@ async function generateSoftwareApiKey(connection) {
   return apiKey;
 }
 
+/*
+|--------------------------------------------------------------------------
+| CHECK DUPLICATE EMAIL OR PHONE IN REALTIME
+|--------------------------------------------------------------------------
+|
+| POST /api/registration/check-duplicate
+| Body: { field: "email" | "phone", value: string, companyId?: number }
+|
+*/
+router.post("/check-duplicate", async (req, res) => {
+  try {
+    const { field, value, companyId } = req.body;
+
+    if (!field || !value) {
+      return res.status(400).json({
+        success: false,
+        message: "Field and value are required.",
+      });
+    }
+
+    if (field !== "email" && field !== "phone") {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid field requested.",
+      });
+    }
+
+    const cleanValue = value.trim();
+    if (!cleanValue) {
+      return res.status(200).json({ exists: false });
+    }
+
+    // Exclude current company ID if in Edit Mode
+    let query = `SELECT id FROM users WHERE ${field} = ?`;
+    const params = [cleanValue];
+
+    if (companyId) {
+      query += ` AND id != ?`;
+      params.push(companyId);
+    }
+
+    query += ` LIMIT 1`;
+
+    const [rows] = await db.execute(query, params);
+
+    return res.status(200).json({
+      exists: rows.length > 0,
+      field,
+    });
+  } catch (error) {
+    console.error("Duplicate check error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Server error checking duplicate value.",
+    });
+  }
+});
 
 /*
 |--------------------------------------------------------------------------
@@ -152,8 +209,6 @@ async function generateSoftwareApiKey(connection) {
 | POST /api/registration/company
 |
 */
-
-
 router.post(
   "/company",
   upload.single("logo"),
@@ -178,33 +233,35 @@ router.post(
       // =========================================================
 
       if (
-        !companyName ||
-        !name ||
-        !email ||
-        !phone ||
-        !password ||
-        !designation ||
-        !address ||
-        !restaurantType ||
-        !branchCount
-      ) {
-        return res.status(400).json({
-          success: false,
-          message: "All required fields must be provided.",
-        });
-      }
+  !companyName ||
+  !name ||
+  !email ||
+  !phone ||
+  !password ||
+  !designation ||
+  !address ||
+  !restaurantType ||
+  branchCount === undefined ||
+  branchCount === null ||
+  branchCount === ""
+) {
+  return res.status(400).json({
+    success: false,
+    message: "All required fields must be provided.",
+  });
+}
 
       const finalBranchCount = Number(branchCount);
 
-      if (
-        !Number.isInteger(finalBranchCount) ||
-        finalBranchCount < 1
-      ) {
-        return res.status(400).json({
-          success: false,
-          message: "Branch count must be a valid number.",
-        });
-      }
+if (
+  !Number.isInteger(finalBranchCount) ||
+  finalBranchCount < 0
+) {
+  return res.status(400).json({
+    success: false,
+    message: "Branch count must be a valid number.",
+  });
+}
 
       // =========================================================
       // Check Logo
@@ -223,136 +280,135 @@ router.post(
       connection = await db.getConnection();
       await connection.beginTransaction();
 
-    // =========================================================
-// VALIDATE RESTAURANT TYPES
-// =========================================================
-
-let restaurantTypeIds;
-
-try {
-  restaurantTypeIds = JSON.parse(restaurantType);
-} catch (error) {
-  await connection.rollback();
-
-  if (req.file) {
-    try {
-      if (fs.existsSync(req.file.path)) {
-        fs.unlinkSync(req.file.path);
-      }
-    } catch (fileError) {
-      console.error("Failed to delete uploaded logo:", fileError);
-    }
-  }
-
-  return res.status(400).json({
-    success: false,
-    message: "Invalid restaurant type selection.",
-  });
-}
-
-// Must be an array
-if (!Array.isArray(restaurantTypeIds) || restaurantTypeIds.length === 0) {
-  await connection.rollback();
-
-  if (req.file) {
-    try {
-      if (fs.existsSync(req.file.path)) {
-        fs.unlinkSync(req.file.path);
-      }
-    } catch (fileError) {
-      console.error("Failed to delete uploaded logo:", fileError);
-    }
-  }
-
-  return res.status(400).json({
-    success: false,
-    message: "Please select at least one restaurant type.",
-  });
-}
-
-// Convert IDs to numbers
-restaurantTypeIds = restaurantTypeIds.map((id) => Number(id));
-
-// Validate every ID
-const hasInvalidRestaurantType = restaurantTypeIds.some(
-  (id) => !Number.isInteger(id) || id < 1
-);
-
-if (hasInvalidRestaurantType) {
-  await connection.rollback();
-
-  if (req.file) {
-    try {
-      if (fs.existsSync(req.file.path)) {
-        fs.unlinkSync(req.file.path);
-      }
-    } catch (fileError) {
-      console.error("Failed to delete uploaded logo:", fileError);
-    }
-  }
-
-  return res.status(400).json({
-    success: false,
-    message: "One or more restaurant types are invalid.",
-  });
-}
-
-// Remove duplicate IDs
-restaurantTypeIds = [...new Set(restaurantTypeIds)];
-
       // =========================================================
-// CHECK ALL RESTAURANT CATEGORIES EXIST
-// =========================================================
+      // Validate Restaurant Types
+      // =========================================================
 
-const placeholders = restaurantTypeIds.map(() => "?").join(", ");
+      let restaurantTypeIds;
 
-const [restaurantCategoryRows] = await connection.execute(
-  `
-    SELECT id
-    FROM restaurant_category
-    WHERE id IN (${placeholders})
-  `,
-  restaurantTypeIds
-);
-
-const existingCategoryIds = restaurantCategoryRows.map((row) =>
-  Number(row.id)
-);
-
-const invalidCategoryIds = restaurantTypeIds.filter(
-  (id) => !existingCategoryIds.includes(id)
-);
-
-if (invalidCategoryIds.length > 0) {
-  await connection.rollback();
-
-  if (req.file) {
-    try {
-      if (fs.existsSync(req.file.path)) {
-        fs.unlinkSync(req.file.path);
-      }
-    } catch (fileError) {
-      console.error("Failed to delete uploaded logo:", fileError);
-    }
-  }
-
-  return res.status(400).json({
-    success: false,
-    message: "One or more selected restaurant types do not exist.",
-    invalidRestaurantTypeIds: invalidCategoryIds,
-  });
-}
-
-      if (restaurantCategoryRows.length === 0) {
+      try {
+        restaurantTypeIds = JSON.parse(restaurantType);
+      } catch (error) {
         await connection.rollback();
 
-        if (req.file) {
-          fs.unlinkSync(req.file.path);
+        if (req.file && fs.existsSync(req.file.path)) {
+          try {
+            fs.unlinkSync(req.file.path);
+          } catch (fileError) {
+            console.error(
+              "Failed to delete uploaded logo:",
+              fileError
+            );
+          }
         }
 
         return res.status(400).json({
           success: false,
-          message: "Selected restaurant type does not exist.",
+          message: "Invalid restaurant type selection.",
+        });
+      }
+
+      // Must be an array
+      if (
+        !Array.isArray(restaurantTypeIds) ||
+        restaurantTypeIds.length === 0
+      ) {
+        await connection.rollback();
+
+        if (req.file && fs.existsSync(req.file.path)) {
+          try {
+            fs.unlinkSync(req.file.path);
+          } catch (fileError) {
+            console.error(
+              "Failed to delete uploaded logo:",
+              fileError
+            );
+          }
+        }
+
+        return res.status(400).json({
+          success: false,
+          message: "Please select at least one restaurant type.",
+        });
+      }
+
+      // Convert IDs to numbers
+      restaurantTypeIds = restaurantTypeIds.map((id) => Number(id));
+
+      // Validate every ID
+      const hasInvalidRestaurantType =
+        restaurantTypeIds.some(
+          (id) => !Number.isInteger(id) || id < 1
+        );
+
+      if (hasInvalidRestaurantType) {
+        await connection.rollback();
+
+        if (req.file && fs.existsSync(req.file.path)) {
+          try {
+            fs.unlinkSync(req.file.path);
+          } catch (fileError) {
+            console.error(
+              "Failed to delete uploaded logo:",
+              fileError
+            );
+          }
+        }
+
+        return res.status(400).json({
+          success: false,
+          message: "One or more restaurant types are invalid.",
+        });
+      }
+
+      // Remove duplicate IDs
+      restaurantTypeIds = [...new Set(restaurantTypeIds)];
+
+      // =========================================================
+      // Check All Restaurant Categories Exist
+      // =========================================================
+
+      const placeholders = restaurantTypeIds
+        .map(() => "?")
+        .join(", ");
+
+      const [restaurantCategoryRows] =
+        await connection.execute(
+          `
+            SELECT id
+            FROM restaurant_category
+            WHERE id IN (${placeholders})
+          `,
+          restaurantTypeIds
+        );
+
+      const existingCategoryIds =
+        restaurantCategoryRows.map((row) => Number(row.id));
+
+      const invalidCategoryIds =
+        restaurantTypeIds.filter(
+          (id) => !existingCategoryIds.includes(id)
+        );
+
+      if (invalidCategoryIds.length > 0) {
+        await connection.rollback();
+
+        if (req.file && fs.existsSync(req.file.path)) {
+          try {
+            fs.unlinkSync(req.file.path);
+          } catch (fileError) {
+            console.error(
+              "Failed to delete uploaded logo:",
+              fileError
+            );
+          }
+        }
+
+        return res.status(400).json({
+          success: false,
+          message:
+            "One or more selected restaurant types do not exist.",
+          invalidRestaurantTypeIds: invalidCategoryIds,
         });
       }
 
@@ -370,18 +426,7 @@ if (invalidCategoryIds.length > 0) {
         [email]
       );
 
-      if (emailRows.length > 0) {
-        await connection.rollback();
-
-        if (req.file) {
-          fs.unlinkSync(req.file.path);
-        }
-
-        return res.status(409).json({
-          success: false,
-          message: "This email address is already registered.",
-        });
-      }
+      const emailExists = emailRows.length > 0;
 
       // =========================================================
       // Check Duplicate Phone
@@ -397,15 +442,82 @@ if (invalidCategoryIds.length > 0) {
         [phone]
       );
 
-      if (phoneRows.length > 0) {
+      const phoneExists = phoneRows.length > 0;
+
+      // =========================================================
+      // Handle Duplicate Email + Phone
+      // =========================================================
+
+      if (emailExists && phoneExists) {
         await connection.rollback();
 
-        if (req.file) {
-          fs.unlinkSync(req.file.path);
+        if (req.file && fs.existsSync(req.file.path)) {
+          try {
+            fs.unlinkSync(req.file.path);
+          } catch (fileError) {
+            console.error(
+              "Failed to delete uploaded logo:",
+              fileError
+            );
+          }
         }
 
         return res.status(409).json({
           success: false,
+          code: "EMAIL_PHONE_EXISTS",
+          emailMessage:
+            "This email address is already registered.",
+          phoneMessage:
+            "This phone number is already registered.",
+        });
+      }
+
+      // =========================================================
+      // Handle Duplicate Email
+      // =========================================================
+
+      if (emailExists) {
+        await connection.rollback();
+
+        if (req.file && fs.existsSync(req.file.path)) {
+          try {
+            fs.unlinkSync(req.file.path);
+          } catch (fileError) {
+            console.error(
+              "Failed to delete uploaded logo:",
+              fileError
+            );
+          }
+        }
+
+        return res.status(409).json({
+          success: false,
+          code: "EMAIL_EXISTS",
+          message: "This email address is already registered.",
+        });
+      }
+
+      // =========================================================
+      // Handle Duplicate Phone
+      // =========================================================
+
+      if (phoneExists) {
+        await connection.rollback();
+
+        if (req.file && fs.existsSync(req.file.path)) {
+          try {
+            fs.unlinkSync(req.file.path);
+          } catch (fileError) {
+            console.error(
+              "Failed to delete uploaded logo:",
+              fileError
+            );
+          }
+        }
+
+        return res.status(409).json({
+          success: false,
+          code: "PHONE_EXISTS",
           message: "This phone number is already registered.",
         });
       }
@@ -434,77 +546,102 @@ if (invalidCategoryIds.length > 0) {
 
       // =========================================================
       // Insert Company
+      //
       // role = 3
       // branchCount_Remaining = branchCount initially
       // =========================================================
 
       const [result] = await connection.execute(
-        `
-          INSERT INTO users (
-            company_id,
-            company_name,
-            phone,
-            email,
-            role,
-            branchCount,
-            branchCount_Remaining,
-            password,
-            software_api_key,
-            restaurant_type,
-            address,
-            logo
-          )
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `,
-        [
-          companyId,
-          companyName,
-          phone,
-          email,
-          3,
-          finalBranchCount,
-          finalBranchCount, // Same value as branchCount
-          hashedPassword,
-          softwareApiKey,
-          JSON.stringify(restaurantTypeIds),
-          address,
-          logoPath,
+  `
+    INSERT INTO users (
+      company_id,
+      company_name,
+      phone,
+      email,
+      role,
+      branchCount,
+      branchCount_Remaining,
+      password,
+      software_api_key,
+      restaurant_type,
+      address,
+      logo,
+      expiry_date
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, DATE_ADD(CURDATE(), INTERVAL 1 MONTH))
+  `,
+  [
+    companyId,
+    companyName,
+    phone,
+    email,
+    3,
+    finalBranchCount,
+    finalBranchCount,
+    hashedPassword,
+    softwareApiKey,
+    JSON.stringify(restaurantTypeIds),
+    address,
+    logoPath,
+  ]
+);
+
+      // =========================================================
+      // Assign Default Menus to New Company User
+      // =========================================================
+
+      const newUserId = result.insertId;
+
+      const defaultMenuIds = [
+        6,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+      ];
+
+      const menuValues = defaultMenuIds
+        .map(() => "(?, ?)")
+        .join(", ");
+
+      const menuParams = defaultMenuIds.flatMap(
+        (menuId) => [
+          newUserId,
+          menuId,
         ]
       );
 
-    // =========================================================
-// ASSIGN DEFAULT MENUS TO NEW COMPANY USER
-// =========================================================
+      await connection.execute(
+        `
+          INSERT INTO user_user_menu (
+            user_id,
+            user_menu_id
+          )
+          VALUES ${menuValues}
+        `,
+        menuParams
+      );
 
-const newUserId = result.insertId;
-
-const defaultMenuIds = [6, 9, 10, 11, 12, 13, 14, 15];
-
-const menuValues = defaultMenuIds
-  .map(() => "(?, ?)")
-  .join(", ");
-
-const menuParams = defaultMenuIds.flatMap((menuId) => [
-  newUserId,
-  menuId,
-]);
-
-await connection.execute(
-  `
-    INSERT INTO user_user_menu (
-      user_id,
-      user_menu_id
-    )
-    VALUES ${menuValues}
-  `,
-  menuParams
-);
       // =========================================================
       // Commit Transaction
       // =========================================================
 
       await connection.commit();
 
+      const [expiryRows] = await connection.execute(
+  `
+    SELECT expiry_date
+    FROM users
+    WHERE id = ?
+    LIMIT 1
+  `,
+  [result.insertId]
+);
+
+const expiryDate = expiryRows[0]?.expiry_date || null;
       // =========================================================
       // Success Response
       // =========================================================
@@ -512,30 +649,42 @@ await connection.execute(
       return res.status(201).json({
         success: true,
         message: "Company registered successfully.",
+        
         data: {
-          id: result.insertId,
-          companyId,
-          companyName,
-          email,
-          phone,
-          role: 3,
-          branchCount: finalBranchCount,
-          branchCount_Remaining: finalBranchCount,
-          softwareApiKey,
-          restaurantType: restaurantTypeIds,
-          address,
-          logo: logoPath,
-        },
+  id: result.insertId,
+  companyId,
+  companyName,
+  email,
+  phone,
+  role: 3,
+  branchCount: finalBranchCount,
+  branchCount_Remaining: finalBranchCount,
+  softwareApiKey,
+  restaurantType: restaurantTypeIds,
+  address,
+  logo: logoPath,
+  expiryDate,
+},
       });
-
     } catch (error) {
       console.error(
         "Company registration error:",
         error
       );
 
+      // =========================================================
+      // Rollback Transaction
+      // =========================================================
+
       if (connection) {
-        await connection.rollback();
+        try {
+          await connection.rollback();
+        } catch (rollbackError) {
+          console.error(
+            "Transaction rollback failed:",
+            rollbackError
+          );
+        }
       }
 
       // =========================================================
@@ -579,12 +728,14 @@ await connection.execute(
         });
       }
 
+      // =========================================================
+      // General Error
+      // =========================================================
+
       return res.status(500).json({
         success: false,
-        message:
-          "Company registration failed.",
+        message: "Company registration failed.",
       });
-
     } finally {
       if (connection) {
         connection.release();
@@ -592,6 +743,7 @@ await connection.execute(
     }
   }
 );
+
 
 
 /*
@@ -1438,4 +1590,5 @@ router.get(
     }
   }
 );
+
 export default router;

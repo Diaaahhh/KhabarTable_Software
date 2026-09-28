@@ -165,12 +165,120 @@ function buildPlaceholders(values) {
  */
 router.get("/", async (req, res) => {
   try {
-    const restaurantTypes = getRestaurantTypesFromCookie(req);
+    // ------------------------------------------------------------------------
+    // Get logged-in user's ID from cookie
+    // ------------------------------------------------------------------------
 
-    if (!restaurantTypes || restaurantTypes.length === 0) {
+    const authCookie = req.cookies?.auth;
+
+    if (!authCookie) {
       return res.status(401).json({
         success: false,
-        message: "Restaurant type not found in cookie.",
+        message: "Not authenticated.",
+      });
+    }
+
+    let cookieUser;
+
+    try {
+      cookieUser = JSON.parse(decodeURIComponent(authCookie));
+    } catch (error) {
+      console.error("AUTH COOKIE PARSE ERROR:", error);
+
+      return res.status(401).json({
+        success: false,
+        message: "Invalid authentication cookie.",
+      });
+    }
+
+    const userId = Number(cookieUser.id);
+
+    if (!userId || Number.isNaN(userId)) {
+      return res.status(401).json({
+        success: false,
+        message: "Invalid user ID.",
+      });
+    }
+
+    // ------------------------------------------------------------------------
+    // Get CURRENT restaurant type from users table
+    // ------------------------------------------------------------------------
+
+    const [users] = await db.query(
+      `
+        SELECT restaurant_type
+        FROM users
+        WHERE id = ?
+        LIMIT 1
+      `,
+      [userId]
+    );
+
+    // ------------------------------------------------------------------------
+    // User not found
+    // ------------------------------------------------------------------------
+
+    if (users.length === 0) {
+      return res.status(401).json({
+        success: false,
+        message: "User not found.",
+      });
+    }
+
+    // ------------------------------------------------------------------------
+    // Get restaurant types from database
+    // ------------------------------------------------------------------------
+
+    let restaurantTypes = users[0].restaurant_type;
+
+    if (!restaurantTypes) {
+      return res.status(401).json({
+        success: false,
+        message: "Restaurant type not found.",
+      });
+    }
+
+    // ------------------------------------------------------------------------
+    // Convert restaurant_type into an array
+    //
+    // Examples:
+    // "1"       → [1]
+    // "[6,7]"   → [6,7]
+    // ------------------------------------------------------------------------
+
+    try {
+      if (typeof restaurantTypes === "string") {
+        const trimmed = restaurantTypes.trim();
+
+        if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
+          restaurantTypes = JSON.parse(trimmed);
+        } else {
+          restaurantTypes = [trimmed];
+        }
+      } else if (!Array.isArray(restaurantTypes)) {
+        restaurantTypes = [restaurantTypes];
+      }
+    } catch (error) {
+      console.error("RESTAURANT TYPE PARSE ERROR:", error);
+
+      return res.status(500).json({
+        success: false,
+        message: "Invalid restaurant type data.",
+      });
+    }
+
+    // ------------------------------------------------------------------------
+    // Normalize restaurant type values
+    // ------------------------------------------------------------------------
+
+    restaurantTypes = restaurantTypes
+      .map((type) => Number(type))
+      .filter((type) => !Number.isNaN(type));
+
+    if (restaurantTypes.length === 0) {
+      return res.status(401).json({
+        success: false,
+        message: "Restaurant type not found.",
       });
     }
 
@@ -209,6 +317,10 @@ router.get("/", async (req, res) => {
       `
     );
 
+    // ------------------------------------------------------------------------
+    // Response
+    // ------------------------------------------------------------------------
+
     return res.status(200).json({
       success: true,
       data: {
@@ -217,6 +329,7 @@ router.get("/", async (req, res) => {
         ingredients,
       },
     });
+
   } catch (error) {
     console.error(
       "Error fetching menu subcategory data:",

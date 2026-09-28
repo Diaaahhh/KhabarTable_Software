@@ -7,7 +7,9 @@ import React, {
 } from "react";
 
 import {
+  AlertCircle,
   Check,
+  CheckCircle2,
   Loader2,
   Pencil,
   Plus,
@@ -15,8 +17,6 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-
-import Swal from "sweetalert2";
 
 import { API_BASE_URL } from "../../constants/api";
 
@@ -39,6 +39,12 @@ interface SubMenu {
   category_name: string;
   menu_name: string;
   ingredients: string;
+}
+
+interface StatusMessage {
+  type: "success" | "error" | "warning";
+  title: string;
+  text: string;
 }
 
 const CreateSubMenu = () => {
@@ -83,6 +89,26 @@ const CreateSubMenu = () => {
   const [deletingId, setDeletingId] =
     useState<number | null>(null);
 
+  const [statusMessage, setStatusMessage] =
+    useState<StatusMessage | null>(null);
+
+  /**
+   * ------------------------------------------------------------------------
+   * Status message helpers
+   * ------------------------------------------------------------------------
+   */
+  const showStatus = (
+    type: StatusMessage["type"],
+    title: string,
+    text: string,
+  ) => {
+    setStatusMessage({ type, title, text });
+  };
+
+  const clearStatus = () => {
+    setStatusMessage(null);
+  };
+
   /**
    * ------------------------------------------------------------------------
    * Fetch Menu Categories + Ingredients
@@ -124,15 +150,13 @@ const CreateSubMenu = () => {
       setMenuCategories([]);
       setIngredientList([]);
 
-      Swal.fire({
-        icon: "error",
-        title: "Failed to load menu data",
-        text:
-          error instanceof Error
-            ? error.message
-            : "Unable to load menu categories and ingredients.",
-        confirmButtonColor: "#7d1119",
-      });
+      showStatus(
+        "error",
+        "Failed to load menu data",
+        error instanceof Error
+          ? error.message
+          : "Unable to load menu categories and ingredients.",
+      );
     } finally {
       setLoadingData(false);
     }
@@ -172,15 +196,13 @@ const CreateSubMenu = () => {
 
       setSubMenus([]);
 
-      Swal.fire({
-        icon: "error",
-        title: "Failed to load sub-menus",
-        text:
-          error instanceof Error
-            ? error.message
-            : "Unable to load sub-menus.",
-        confirmButtonColor: "#7d1119",
-      });
+      showStatus(
+        "error",
+        "Failed to load sub-menus",
+        error instanceof Error
+          ? error.message
+          : "Unable to load sub-menus.",
+      );
     } finally {
       setLoadingSubMenus(false);
     }
@@ -195,6 +217,21 @@ const CreateSubMenu = () => {
     fetchData();
     fetchSubMenus();
   }, []);
+
+  /**
+   * ------------------------------------------------------------------------
+   * Auto-dismiss status message
+   * ------------------------------------------------------------------------
+   */
+  useEffect(() => {
+    if (!statusMessage) return;
+
+    const timer = setTimeout(() => {
+      setStatusMessage(null);
+    }, 4000);
+
+    return () => clearTimeout(timer);
+  }, [statusMessage]);
 
   /**
    * ------------------------------------------------------------------------
@@ -244,35 +281,34 @@ const CreateSubMenu = () => {
   ) => {
     e.preventDefault();
 
+    clearStatus();
+
     if (!menuCategory) {
-      Swal.fire({
-        icon: "warning",
-        title: "Menu Category Required",
-        text: "Please select a menu category.",
-        confirmButtonColor: "#7d1119",
-      });
+      showStatus(
+        "warning",
+        "Menu Category Required",
+        "Please select a menu category.",
+      );
 
       return;
     }
 
     if (!menuName.trim()) {
-      Swal.fire({
-        icon: "warning",
-        title: "Menu Name Required",
-        text: "Please enter a menu name.",
-        confirmButtonColor: "#7d1119",
-      });
+      showStatus(
+        "warning",
+        "Menu Name Required",
+        "Please enter a menu name.",
+      );
 
       return;
     }
 
     if (ingredients.length === 0) {
-      Swal.fire({
-        icon: "warning",
-        title: "Ingredients Required",
-        text: "Please select at least one ingredient.",
-        confirmButtonColor: "#7d1119",
-      });
+      showStatus(
+        "warning",
+        "Ingredients Required",
+        "Please select at least one ingredient.",
+      );
 
       return;
     }
@@ -307,13 +343,11 @@ const CreateSubMenu = () => {
         );
       }
 
-      Swal.fire({
-        icon: "success",
-        title: "Menu Created",
-        text:
-          "The menu has been created successfully.",
-        confirmButtonColor: "#7d1119",
-      });
+      showStatus(
+        "success",
+        "Menu Created",
+        "The menu has been created successfully.",
+      );
 
       setMenuCategory("");
       setMenuName("");
@@ -326,15 +360,13 @@ const CreateSubMenu = () => {
         error,
       );
 
-      Swal.fire({
-        icon: "error",
-        title: "Creation Failed",
-        text:
-          error instanceof Error
-            ? error.message
-            : "Something went wrong while creating the menu.",
-        confirmButtonColor: "#7d1119",
-      });
+      showStatus(
+        "error",
+        "Creation Failed",
+        error instanceof Error
+          ? error.message
+          : "Something went wrong while creating the menu.",
+      );
     } finally {
       setSubmitting(false);
     }
@@ -347,6 +379,8 @@ const CreateSubMenu = () => {
    */
   const handleEdit = async (subMenu: SubMenu) => {
     try {
+      clearStatus();
+
       const response = await fetch(
         `${API_BASE_URL}/api/menu-subcategories/${subMenu.id}`,
         {
@@ -384,15 +418,13 @@ const CreateSubMenu = () => {
         error,
       );
 
-      Swal.fire({
-        icon: "error",
-        title: "Edit Failed",
-        text:
-          error instanceof Error
-            ? error.message
-            : "Unable to load sub-menu.",
-        confirmButtonColor: "#7d1119",
-      });
+      showStatus(
+        "error",
+        "Edit Failed",
+        error instanceof Error
+          ? error.message
+          : "Unable to load sub-menu.",
+      );
     }
   };
 
@@ -418,35 +450,34 @@ const CreateSubMenu = () => {
       return;
     }
 
+    clearStatus();
+
     if (!editingCategory) {
-      Swal.fire({
-        icon: "warning",
-        title: "Menu Category Required",
-        text: "Please select a menu category.",
-        confirmButtonColor: "#7d1119",
-      });
+      showStatus(
+        "warning",
+        "Menu Category Required",
+        "Please select a menu category.",
+      );
 
       return;
     }
 
     if (!editingName.trim()) {
-      Swal.fire({
-        icon: "warning",
-        title: "Menu Name Required",
-        text: "Please enter a menu name.",
-        confirmButtonColor: "#7d1119",
-      });
+      showStatus(
+        "warning",
+        "Menu Name Required",
+        "Please enter a menu name.",
+      );
 
       return;
     }
 
     if (editingIngredients.length === 0) {
-      Swal.fire({
-        icon: "warning",
-        title: "Ingredients Required",
-        text: "Please select at least one ingredient.",
-        confirmButtonColor: "#7d1119",
-      });
+      showStatus(
+        "warning",
+        "Ingredients Required",
+        "Please select at least one ingredient.",
+      );
 
       return;
     }
@@ -481,13 +512,11 @@ const CreateSubMenu = () => {
         );
       }
 
-      Swal.fire({
-        icon: "success",
-        title: "Updated Successfully",
-        text:
-          "The sub-menu has been updated successfully.",
-        confirmButtonColor: "#7d1119",
-      });
+      showStatus(
+        "success",
+        "Updated Successfully",
+        "The sub-menu has been updated successfully.",
+      );
 
       handleCancelEdit();
 
@@ -498,15 +527,13 @@ const CreateSubMenu = () => {
         error,
       );
 
-      Swal.fire({
-        icon: "error",
-        title: "Update Failed",
-        text:
-          error instanceof Error
-            ? error.message
-            : "Something went wrong while updating the sub-menu.",
-        confirmButtonColor: "#7d1119",
-      });
+      showStatus(
+        "error",
+        "Update Failed",
+        error instanceof Error
+          ? error.message
+          : "Something went wrong while updating the sub-menu.",
+      );
     } finally {
       setSavingEdit(false);
     }
@@ -520,18 +547,13 @@ const CreateSubMenu = () => {
   const handleDelete = async (
     subMenu: SubMenu,
   ) => {
-    const result = await Swal.fire({
-      icon: "warning",
-      title: "Delete Sub Menu?",
-      text: `Are you sure you want to delete "${subMenu.menu_name}"? Its ingredient assignments will also be deleted.`,
-      showCancelButton: true,
-      confirmButtonText: "Yes, Delete",
-      cancelButtonText: "Cancel",
-      confirmButtonColor: "#d33",
-      cancelButtonColor: "#6b7280",
-    });
+    clearStatus();
 
-    if (!result.isConfirmed) {
+    const confirmed = window.confirm(
+      `Are you sure you want to delete "${subMenu.menu_name}"? Its ingredient assignments will also be deleted.`,
+    );
+
+    if (!confirmed) {
       return;
     }
 
@@ -555,12 +577,11 @@ const CreateSubMenu = () => {
         );
       }
 
-      Swal.fire({
-        icon: "success",
-        title: "Deleted Successfully",
-        text: "The sub-menu has been deleted.",
-        confirmButtonColor: "#7d1119",
-      });
+      showStatus(
+        "success",
+        "Deleted Successfully",
+        "The sub-menu has been deleted.",
+      );
 
       await fetchSubMenus();
     } catch (error) {
@@ -569,18 +590,39 @@ const CreateSubMenu = () => {
         error,
       );
 
-      Swal.fire({
-        icon: "error",
-        title: "Delete Failed",
-        text:
-          error instanceof Error
-            ? error.message
-            : "Something went wrong while deleting the sub-menu.",
-        confirmButtonColor: "#7d1119",
-      });
+      showStatus(
+        "error",
+        "Delete Failed",
+        error instanceof Error
+          ? error.message
+          : "Something went wrong while deleting the sub-menu.",
+      );
     } finally {
       setDeletingId(null);
     }
+  };
+
+  const statusStyles: Record<
+    StatusMessage["type"],
+    string
+  > = {
+    success:
+      "border-green-300 bg-green-50 text-green-800 dark:border-green-800 dark:bg-green-950 dark:text-green-200",
+    error:
+      "border-red-300 bg-red-50 text-red-800 dark:border-red-800 dark:bg-red-950 dark:text-red-200",
+    warning:
+      "border-yellow-300 bg-yellow-50 text-yellow-800 dark:border-yellow-800 dark:bg-yellow-950 dark:text-yellow-200",
+  };
+
+  const StatusIcon = ({
+    type,
+  }: {
+    type: StatusMessage["type"];
+  }) => {
+    if (type === "success")
+      return <CheckCircle2 className="h-4 w-4" />;
+
+    return <AlertCircle className="h-4 w-4" />;
   };
 
   return (
@@ -599,6 +641,38 @@ const CreateSubMenu = () => {
             Create a menu item and assign its ingredients.
           </p>
         </div>
+
+        {/* ================================================================
+            INLINE STATUS MESSAGE
+        ================================================================= */}
+        {statusMessage && (
+          <div
+            className={`flex items-start gap-2 rounded-lg border px-3 py-2 text-xs ${statusStyles[statusMessage.type]}`}
+          >
+            <span className="mt-0.5 shrink-0">
+              <StatusIcon type={statusMessage.type} />
+            </span>
+
+            <div className="flex-1">
+              <p className="font-semibold">
+                {statusMessage.title}
+              </p>
+
+              <p className="mt-0.5">
+                {statusMessage.text}
+              </p>
+            </div>
+
+            <button
+              type="button"
+              onClick={clearStatus}
+              className="shrink-0 rounded p-0.5 transition hover:bg-black/10"
+              title="Dismiss"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        )}
 
         {/* ================================================================
             CREATE FORM

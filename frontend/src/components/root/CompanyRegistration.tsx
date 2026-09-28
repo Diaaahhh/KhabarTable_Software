@@ -1,14 +1,15 @@
 "use client";
 
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import {
   useEffect,
   useRef,
   useState,
   type ChangeEvent,
+  type FocusEvent,
   type FormEvent,
 } from "react";
-import Swal from "sweetalert2";
 
 import {
   Building2,
@@ -29,9 +30,23 @@ import {
 import { API_BASE_URL } from "../../constants/api";
 
 export default function CompanyRegistration() {
+  const searchParams = useSearchParams();
+  const companyId = searchParams.get("id");
+  const isEditMode = Boolean(companyId);
+
+  const[successMessage, setSuccessMessage]= useState("");
+  const [loadingCompany, setLoadingCompany] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
   const [restaurantType, setRestaurantType] = useState<string[]>([]);
   const [restaurantTypeOpen, setRestaurantTypeOpen] = useState(false);
   const restaurantTypeRef = useRef<HTMLDivElement>(null);
+  const emailDuplicateTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
+
+  const phoneDuplicateTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
   const [restaurantCategories, setRestaurantCategories] = useState<
     {
       id: number;
@@ -57,7 +72,7 @@ export default function CompanyRegistration() {
   });
 
   // =========================================================
-  // VALIDATION ERRORS
+  // VALIDATION ERRORS & TOUCHED STATES
   // =========================================================
 
   const [errors, setErrors] = useState({
@@ -65,6 +80,41 @@ export default function CompanyRegistration() {
     phone: "",
     general: "",
   });
+
+  const [touched, setTouched] = useState({
+    email: false,
+    phone: false,
+  });
+
+  // =========================================================
+  // VALIDATION HELPERS
+  // =========================================================
+
+  const validateEmail = (email: string): string => {
+    const trimmed = email.trim();
+    if (!trimmed) return "Email is required.";
+
+    const emailAtIndex = trimmed.indexOf("@");
+    const isValid =
+      emailAtIndex > 0 &&
+      emailAtIndex < trimmed.length - 1 &&
+      trimmed.includes(".", emailAtIndex + 1) &&
+      !trimmed.includes(" ");
+
+    return isValid
+      ? ""
+      : "Please enter a valid email address (example: name@example.com).";
+  };
+
+  const validatePhone = (phone: string): string => {
+    const trimmed = phone.trim();
+    if (!trimmed) return "Phone number is required.";
+
+    const phoneRegex = /^\d{11}$/;
+    return phoneRegex.test(trimmed)
+      ? ""
+      : "Phone number must contain exactly 11 digits.";
+  };
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -80,6 +130,18 @@ export default function CompanyRegistration() {
 
     return () => {
       document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (emailDuplicateTimerRef.current) {
+        clearTimeout(emailDuplicateTimerRef.current);
+      }
+
+      if (phoneDuplicateTimerRef.current) {
+        clearTimeout(phoneDuplicateTimerRef.current);
+      }
     };
   }, []);
 
@@ -107,15 +169,11 @@ export default function CompanyRegistration() {
         setRestaurantCategories(data.data || []);
       } catch (error) {
         console.error("Error fetching restaurant categories:", error);
-
         setRestaurantCategories([]);
-
-        Swal.fire({
-          icon: "error",
-          title: "Failed to load restaurant types",
-          text: "Unable to load restaurant types from the server.",
-          confirmButtonColor: "#7d1119",
-        });
+        setErrors((previous) => ({
+          ...previous,
+          general: "Unable to load restaurant types from the server.",
+        }));
       } finally {
         setLoadingRestaurantCategories(false);
       }
@@ -125,73 +183,254 @@ export default function CompanyRegistration() {
   }, []);
 
   // =========================================================
-  // HANDLE INPUT CHANGE
+  // FETCH COMPANY FOR EDIT
+  // =========================================================
+
+  useEffect(() => {
+    if (!companyId) return;
+
+    const fetchCompany = async () => {
+      try {
+        setLoadingCompany(true);
+
+        const response = await fetch(
+          `${API_BASE_URL}/api/companies/${companyId}`,
+          {
+            credentials: "include",
+            cache: "no-store",
+          },
+        );
+
+        const result = await response.json();
+
+        if (!response.ok) {
+          throw new Error(result.message || "Failed to load company.");
+        }
+
+        const company = result.data;
+
+        setFormData((previous) => ({
+          ...previous,
+          companyName: company.company_name || "",
+          email: company.email || "",
+          phone: company.phone || "",
+          address: company.address || "",
+          password: "",
+          name: "",
+          designation: "",
+        }));
+
+        let restaurantTypes: string[] = [];
+
+        if (company.restaurant_type) {
+          try {
+            const parsed =
+              typeof company.restaurant_type === "string"
+                ? JSON.parse(company.restaurant_type)
+                : company.restaurant_type;
+
+            if (Array.isArray(parsed)) {
+              restaurantTypes = parsed.map(String);
+            }
+          } catch (error) {
+            console.error("Failed to parse restaurant types:", error);
+          }
+        }
+
+        setRestaurantType(restaurantTypes);
+
+        const savedBranchCount = Number(company.branchCount ?? 0);
+
+        if (savedBranchCount >= 1 && savedBranchCount <= 5) {
+          setBranchCount(String(savedBranchCount));
+          setCustomBranchCount("");
+        } else {
+          setBranchCount("Custom");
+          setCustomBranchCount(
+            savedBranchCount > 0 ? String(savedBranchCount) : "",
+          );
+        }
+
+        if (savedBranchCount >= 1 && savedBranchCount <= 5) {
+          setBranchCount(String(savedBranchCount));
+          setCustomBranchCount("");
+        } else {
+          setBranchCount("Custom");
+          setCustomBranchCount(String(savedBranchCount));
+        }
+
+        if (company.logo) {
+          setImagePreview(`${API_BASE_URL}/uploads/company/${company.logo}`);
+        }
+      } catch (error) {
+        console.error("Failed to fetch company for editing:", error);
+        setErrors((previous) => ({
+          ...previous,
+          general:
+            error instanceof Error
+              ? error.message
+              : "Unable to load company information.",
+        }));
+      } finally {
+        setLoadingCompany(false);
+      }
+    };
+
+    fetchCompany();
+  }, [companyId]);
+
+  // =========================================================
+  // SERVER DUPLICATE CHECK
+  // =========================================================
+
+  const checkDuplicateOnServer = async (
+    field: "email" | "phone",
+    value: string,
+  ) => {
+    try {
+      const response = await fetch(
+        `${API_BASE_URL}/api/registration/check-duplicate`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            field,
+            value: value.trim(),
+            companyId: companyId ? Number(companyId) : undefined,
+          }),
+        },
+      );
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        return;
+      }
+
+      if (data.exists) {
+        setErrors((prev) => ({
+          ...prev,
+          [field]:
+            field === "email"
+              ? "This email address is already registered."
+              : "This phone number is already registered.",
+        }));
+      } else {
+        // Clear duplicate error if the new value is available
+        setErrors((prev) => ({
+          ...prev,
+          [field]: "",
+        }));
+      }
+    } catch (error) {
+      console.error(`Failed to check duplicate for ${field}:`, error);
+    }
+  };
+
+  // =========================================================
+  // FIXED: REALTIME INPUT CHANGE HANDLER
   // =========================================================
 
   const handleChange = (
     event: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>,
   ) => {
     const { name, value } = event.target;
-
-    // ---------------------------------------------------------
-    // Phone
-    // ---------------------------------------------------------
-
+    setSuccessMessage("");
+    // =========================================================
+    // PHONE
+    // =========================================================
     if (name === "phone") {
-      const digitsOnly = value.replace(/\D/g, "");
+      const digitsOnly = value.replace(/\D/g, "").slice(0, 11);
 
       setFormData((previous) => ({
         ...previous,
-        phone: digitsOnly.slice(0, 11),
+        phone: digitsOnly,
       }));
 
-      // Clear phone error while editing
+      // Clear previous phone duplicate-check timer
+      if (phoneDuplicateTimerRef.current) {
+        clearTimeout(phoneDuplicateTimerRef.current);
+      }
+
+      // Validate format immediately
+      const phoneErr = validatePhone(digitsOnly);
+
       setErrors((previous) => ({
         ...previous,
-        phone: "",
+        phone: phoneErr,
         general: "",
       }));
+
+      // Only start duplicate check when format is valid
+      if (!phoneErr) {
+        phoneDuplicateTimerRef.current = setTimeout(() => {
+          checkDuplicateOnServer("phone", digitsOnly);
+        }, 2000);
+      }
 
       return;
     }
 
+    // =========================================================
+    // EMAIL
+    // =========================================================
+    if (name === "email") {
+      setFormData((previous) => ({
+        ...previous,
+        email: value,
+      }));
+
+      // Clear previous email duplicate-check timer
+      if (emailDuplicateTimerRef.current) {
+        clearTimeout(emailDuplicateTimerRef.current);
+      }
+
+      // Validate format immediately
+      const emailErr = validateEmail(value);
+
+      setErrors((previous) => ({
+        ...previous,
+        email: emailErr,
+        general: "",
+      }));
+
+      // Only start duplicate check when format is valid
+      if (!emailErr) {
+        emailDuplicateTimerRef.current = setTimeout(() => {
+          checkDuplicateOnServer("email", value);
+        }, 2000);
+      }
+
+      return;
+    }
+
+    // =========================================================
+    // OTHER FIELDS
+    // =========================================================
     setFormData((previous) => ({
       ...previous,
       [name]: value,
     }));
 
-    // Clear corresponding errors while editing
-    if (name === "email") {
-      setErrors((previous) => ({
-        ...previous,
-        email: "",
-        general: "",
-      }));
-    }
+    setErrors((previous) => ({
+      ...previous,
+      general: "",
+    }));
   };
 
   // =========================================================
-  // IMAGE CHANGE
+  // IMAGE CHANGE HANDLER
   // =========================================================
 
-  // =========================================================
-  // IMAGE CHANGE + RESIZE + CROP + COMPRESSION
-  // =========================================================
   const handleImageChange = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
-
-    if (!file) {
-      return;
-    }
+    if (!file) return;
 
     try {
-      // =====================================================
-      // CREATE IMAGE
-      // =====================================================
       const image = new Image();
-
       const imageUrl = URL.createObjectURL(file);
-
       image.src = imageUrl;
 
       await new Promise<void>((resolve, reject) => {
@@ -199,55 +438,29 @@ export default function CompanyRegistration() {
         image.onerror = () => reject(new Error("Invalid image."));
       });
 
-      // =====================================================
-      // SOURCE DIMENSIONS
-      // =====================================================
       const sourceWidth = image.naturalWidth;
       const sourceHeight = image.naturalHeight;
-
-      // =====================================================
-      // PERFECT SQUARE CROP
-      // =====================================================
       const cropSize = Math.min(sourceWidth, sourceHeight);
 
       const cropX = (sourceWidth - cropSize) / 2;
       const cropY = (sourceHeight - cropSize) / 2;
 
-      // =====================================================
-      // START WITH 512 × 512
-      // =====================================================
       let outputSize = Math.min(cropSize, 512);
-
       let compressedBlob: Blob | null = null;
 
-      // =====================================================
-      // COMPRESS
-      // =====================================================
-      // Try several dimensions until the file is <= 50 KB.
       while (outputSize >= 64) {
         const canvas = document.createElement("canvas");
-
         canvas.width = outputSize;
         canvas.height = outputSize;
 
         const context = canvas.getContext("2d");
+        if (!context) throw new Error("Unable to process image.");
 
-        if (!context) {
-          throw new Error("Unable to process image.");
-        }
-
-        // Better image quality while resizing
         context.imageSmoothingEnabled = true;
         context.imageSmoothingQuality = "high";
-
-        // White background
-        // Useful because JPEG does not support transparency.
         context.fillStyle = "#ffffff";
         context.fillRect(0, 0, outputSize, outputSize);
 
-        // ===================================================
-        // CENTER-CROP + RESIZE
-        // ===================================================
         context.drawImage(
           image,
           cropX,
@@ -260,9 +473,6 @@ export default function CompanyRegistration() {
           outputSize,
         );
 
-        // ===================================================
-        // TRY DIFFERENT JPEG QUALITIES
-        // ===================================================
         const qualities = [0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3];
 
         for (const quality of qualities) {
@@ -276,68 +486,32 @@ export default function CompanyRegistration() {
           }
         }
 
-        // ===================================================
-        // STOP IF SUCCESSFULLY COMPRESSED
-        // ===================================================
-        if (compressedBlob) {
-          break;
-        }
-
-        // ===================================================
-        // STILL TOO LARGE → REDUCE DIMENSIONS
-        // ===================================================
+        if (compressedBlob) break;
         outputSize = Math.floor(outputSize * 0.8);
       }
 
-      // =====================================================
-      // CHECK FINAL RESULT
-      // =====================================================
       if (!compressedBlob || compressedBlob.size > 50 * 1024) {
         throw new Error("Unable to compress image below 50 KB.");
       }
 
-      // =====================================================
-      // CREATE PROCESSED FILE
-      // =====================================================
       const processedFile = new File([compressedBlob], "company-logo.jpg", {
         type: "image/jpeg",
         lastModified: Date.now(),
       });
 
-      // =====================================================
-      // CREATE PREVIEW
-      // =====================================================
       const previewUrl = URL.createObjectURL(processedFile);
 
       setImagePreview((previous) => {
-        if (previous) {
-          URL.revokeObjectURL(previous);
-        }
-
+        if (previous) URL.revokeObjectURL(previous);
         return previewUrl;
       });
 
-      // =====================================================
-      // STORE PROCESSED FILE
-      // =====================================================
       setCompanyLogo(processedFile);
-
-      // =====================================================
-      // CLEAN SOURCE URL
-      // =====================================================
       URL.revokeObjectURL(imageUrl);
-
-      console.log(
-        `Original: ${(file.size / 1024).toFixed(2)} KB`,
-        `→ Processed: ${(processedFile.size / 1024).toFixed(2)} KB`,
-        `→ Size: ${outputSize} × ${outputSize}`,
-      );
     } catch (error) {
       console.error("Image processing error:", error);
-
       setImagePreview(null);
       setCompanyLogo(null);
-
       event.target.value = "";
 
       Swal.fire({
@@ -356,141 +530,153 @@ export default function CompanyRegistration() {
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
-    // Clear previous errors
-    setErrors({
-      email: "",
-      phone: "",
-      general: "",
-    });
-
     const email = formData.email.trim();
     const phone = formData.phone.trim();
 
-    let hasError = false;
+    const emailError = validateEmail(email);
+    const phoneError = validatePhone(phone);
 
-    // =======================================================
-    // EMAIL VALIDATION
-    // =======================================================
+    let generalError = "";
 
-    const emailAtIndex = email.indexOf("@");
-
-    const isValidEmail =
-      emailAtIndex > 0 &&
-      emailAtIndex < email.length - 1 &&
-      email.includes(".", emailAtIndex + 1) &&
-      !email.includes(" ");
-
-    if (!isValidEmail) {
-      setErrors((previous) => ({
-        ...previous,
-        email:
-          "Please enter a valid email address (example: name@example.com).",
-      }));
-
-      hasError = true;
+    if (restaurantType.length === 0) {
+      generalError = "Please select at least one restaurant type.";
     }
-
-    // =======================================================
-    // PHONE VALIDATION
-    // =======================================================
-
-    const phoneRegex = /^\d{11}$/;
-
-    if (!phoneRegex.test(phone)) {
-      setErrors((previous) => ({
-        ...previous,
-        phone: "Phone number must contain exactly 11 digits.",
-      }));
-
-      hasError = true;
-    }
-
-    // =======================================================
-    // STOP IF CLIENT VALIDATION FAILED
-    // =======================================================
-
-    if (hasError) {
-      return;
-    }
-
-    // =======================================================
-    // BRANCH COUNT
-    // =======================================================
 
     const finalBranchCount =
       branchCount === "Custom"
-        ? Number(customBranchCount)
+        ? customBranchCount === ""
+          ? 0
+          : Number(customBranchCount)
         : Number(branchCount);
 
-    // =======================================================
-    // FORM DATA
-    // =======================================================
-
-    const form = new FormData();
-
-    form.append("companyName", formData.companyName);
-    form.append("name", formData.name);
-    form.append("email", email);
-    form.append("phone", phone);
-    form.append("password", formData.password);
-    form.append("designation", formData.designation);
-    form.append("address", formData.address);
-    form.append("restaurantType", JSON.stringify(restaurantType));
-    form.append("branchCount", String(finalBranchCount));
-
-    // =======================================================
-    // COMPANY LOGO
-    // =======================================================
-    if (companyLogo) {
-      form.append("logo", companyLogo);
+    if (!Number.isInteger(finalBranchCount) || finalBranchCount < 0) {
+      generalError = "Please enter a valid branch count.";
     }
 
-    // =======================================================
-    // SEND TO BACKEND
-    // =======================================================
+    setTouched({ email: true, phone: true });
+    setErrors({
+      email: emailError,
+      phone: phoneError,
+      general: generalError,
+    });
+
+    if (emailError || phoneError || generalError) return;
 
     try {
+      setSubmitting(true);
+
+      if (isEditMode && companyId) {
+        const response = await fetch(
+          `${API_BASE_URL}/api/companies/${companyId}`,
+          {
+            method: "PUT",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            credentials: "include",
+            body: JSON.stringify({
+              companyName: formData.companyName.trim(),
+              email,
+              phone,
+              address: formData.address.trim(),
+              restaurantType,
+              branchCount: finalBranchCount,
+            }),
+          },
+        );
+
+        const data = await response.json();
+
+        if (!response.ok) {
+          if (data.code === "EMAIL_EXISTS") {
+            setErrors((previous) => ({
+              ...previous,
+              email:
+                data.message || "This email address is already registered.",
+              general: "",
+            }));
+            return;
+          }
+
+          if (data.code === "PHONE_EXISTS") {
+            setErrors((previous) => ({
+              ...previous,
+              phone: data.message || "This phone number is already registered.",
+              general: "",
+            }));
+            return;
+          }
+
+          if (data.code === "EMAIL_PHONE_EXISTS") {
+            setErrors((previous) => ({
+              ...previous,
+              email:
+                data.emailMessage ||
+                "This email address is already registered.",
+              phone:
+                data.phoneMessage || "This phone number is already registered.",
+              general: "",
+            }));
+            return;
+          }
+
+          setErrors((previous) => ({
+            ...previous,
+            general: data.message || "Registration failed.",
+          }));
+          return;
+        }
+
+        setSuccessMessage("Company updated successfully.");
+
+        setTimeout(() => {
+          window.location.href = "/root/list";
+        }, 1200);
+
+        return;
+        return;
+      }
+
+      // Create new company
+      const form = new FormData();
+      form.append("companyName", formData.companyName.trim());
+      form.append("name", formData.name.trim());
+      form.append("email", email);
+      form.append("phone", phone);
+      form.append("password", formData.password);
+      form.append("designation", formData.designation.trim());
+      form.append("address", formData.address.trim());
+      form.append("restaurantType", JSON.stringify(restaurantType));
+      form.append("branchCount", String(finalBranchCount));
+
+      if (companyLogo) {
+        form.append("logo", companyLogo);
+      }
+
       const response = await fetch(`${API_BASE_URL}/api/registration/company`, {
         method: "POST",
+        credentials: "include",
         body: form,
       });
 
       const data = await response.json();
 
-      // =====================================================
-      // BACKEND VALIDATION ERROR
-      // =====================================================
-
       if (!response.ok) {
-        // ---------------------------------------------------
-        // EMAIL ALREADY EXISTS
-        // ---------------------------------------------------
-
         if (data.code === "EMAIL_EXISTS") {
           setErrors((previous) => ({
             ...previous,
             email: data.message || "This email is already registered.",
           }));
-
           return;
         }
-
-        // ---------------------------------------------------
-        // PHONE ALREADY EXISTS
-        // ---------------------------------------------------
 
         if (data.code === "PHONE_EXISTS") {
           setErrors((previous) => ({
             ...previous,
             phone: data.message || "This phone number is already registered.",
           }));
-
           return;
         }
-
-        // ---------------------------------------------------
-        // BOTH EMAIL + PHONE EXIST
-        // ---------------------------------------------------
 
         if (data.code === "EMAIL_PHONE_EXISTS") {
           setErrors({
@@ -499,67 +685,33 @@ export default function CompanyRegistration() {
               data.phoneMessage || "This phone number is already registered.",
             general: "",
           });
-
           return;
         }
-
-        // ---------------------------------------------------
-        // OTHER ERROR
-        // ---------------------------------------------------
 
         setErrors((previous) => ({
           ...previous,
           general: data.message || "Registration failed.",
         }));
-
         return;
       }
 
-      // =====================================================
-      // SUCCESS
-      // =====================================================
+      setSuccessMessage("Company registered successfully.");
 
-      console.log("Registration successful:", data);
-
-      await Swal.fire({
-        icon: "success",
-        title: "Registration Successful!",
-        text: "The company has been registered successfully.",
-        confirmButtonText: "OK",
-        confirmButtonColor: "#7d1119",
-      });
-
-      // Optional: reset form after successful registration
-      setFormData({
-        companyName: "",
-        name: "",
-        email: "",
-        phone: "",
-        password: "",
-        designation: "",
-        address: "",
-      });
-
-      setRestaurantType([]);
-      setBranchCount("1");
-      setCustomBranchCount("");
-      setImagePreview(null);
-      setCompanyLogo(null);
-      
-      const imageInput = document.getElementById(
-        "company-image",
-      ) as HTMLInputElement | null;
-
-      if (imageInput) {
-        imageInput.value = "";
-      }
+      setTimeout(() => {
+        window.location.href = "/root/list";
+      }, 1200);
     } catch (error) {
-      console.error("Registration error:", error);
+      console.error("Submit error:", error);
 
       setErrors((previous) => ({
         ...previous,
-        general: "Unable to connect to the server.",
+        general:
+          error instanceof Error
+            ? error.message
+            : "Unable to connect to the server.",
       }));
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -567,16 +719,15 @@ export default function CompanyRegistration() {
     <div className="min-h-screen bg-surface px-4 py-8">
       <div className="mx-auto w-full max-w-[620px]">
         {/* Header */}
-
         <div className="mb-0 bg-primary px-5 py-4 text-center">
           <h1 className="text-2xl font-bold text-white sm:text-3xl">
-            Company Registration
+            {isEditMode ? "Edit Company" : "Company Registration"}
           </h1>
         </div>
 
         {/* Form */}
-
         <form
+          noValidate
           onSubmit={handleSubmit}
           className="bg-surface px-5 py-7 sm:px-8 sm:py-8"
         >
@@ -591,6 +742,7 @@ export default function CompanyRegistration() {
               placeholder="Type company name"
               required
             />
+
             {/* Name */}
             <FormField
               icon={<User size={20} strokeWidth={2} />}
@@ -601,6 +753,7 @@ export default function CompanyRegistration() {
               placeholder="Type Name"
               required
             />
+
             {/* Restaurant Type */}
             <div>
               <div className="mb-2 flex items-center gap-3">
@@ -609,7 +762,6 @@ export default function CompanyRegistration() {
                   strokeWidth={2}
                   className="text-text-primary"
                 />
-
                 <label className="text-base font-bold text-text-primary">
                   Restaurant Type
                   <span className="ml-1 text-secondary">*</span>
@@ -617,7 +769,6 @@ export default function CompanyRegistration() {
               </div>
 
               <div ref={restaurantTypeRef} className="relative">
-                {/* Selected values / dropdown button */}
                 <button
                   type="button"
                   onClick={() => setRestaurantTypeOpen((previous) => !previous)}
@@ -647,13 +798,11 @@ export default function CompanyRegistration() {
                             className="inline-flex items-center gap-1.5 rounded-full bg-primary-light px-3 py-1 text-sm font-medium text-white"
                           >
                             {category.res_category}
-
                             <span
                               role="button"
                               tabIndex={0}
                               onClick={(event) => {
                                 event.stopPropagation();
-
                                 setRestaurantType((previous) =>
                                   previous.filter((id) => id !== selectedId),
                                 );
@@ -665,7 +814,6 @@ export default function CompanyRegistration() {
                                 ) {
                                   event.preventDefault();
                                   event.stopPropagation();
-
                                   setRestaurantType((previous) =>
                                     previous.filter((id) => id !== selectedId),
                                   );
@@ -690,10 +838,8 @@ export default function CompanyRegistration() {
                   />
                 </button>
 
-                {/* Dropdown */}
                 {restaurantTypeOpen && !loadingRestaurantCategories && (
                   <div className="absolute left-0 right-0 z-50 mt-2 overflow-hidden rounded-md border border-border bg-white shadow-lg">
-                    {/* Header */}
                     <div className="flex items-center justify-between border-b border-border px-4 py-3">
                       <span className="text-sm font-semibold text-text-primary">
                         Select Restaurant Types
@@ -710,7 +856,6 @@ export default function CompanyRegistration() {
                       )}
                     </div>
 
-                    {/* Options */}
                     <div className="max-h-60 overflow-y-auto py-1">
                       {restaurantCategories.map((category) => {
                         const categoryId = String(category.id);
@@ -727,7 +872,6 @@ export default function CompanyRegistration() {
                                     (id) => id !== categoryId,
                                   );
                                 }
-
                                 return [...previous, categoryId];
                               });
                             }}
@@ -738,7 +882,6 @@ export default function CompanyRegistration() {
                             }`}
                           >
                             <span>{category.res_category}</span>
-
                             <span
                               className={`flex h-5 w-5 items-center justify-center rounded border transition ${
                                 isSelected
@@ -758,7 +901,6 @@ export default function CompanyRegistration() {
                 )}
               </div>
 
-              {/* Selection information */}
               <div className="mt-2 flex items-center justify-between">
                 <p className="text-xs text-text-muted">
                   {restaurantType.length === 0
@@ -779,6 +921,7 @@ export default function CompanyRegistration() {
                 )}
               </div>
             </div>
+
             {/* Email */}
             <div>
               <FormField
@@ -791,11 +934,11 @@ export default function CompanyRegistration() {
                 placeholder="Type email address"
                 required
               />
-
               {errors.email && (
                 <p className="mt-1 text-sm text-danger">{errors.email}</p>
               )}
             </div>
+
             {/* Phone */}
             <div>
               <FormField
@@ -808,22 +951,25 @@ export default function CompanyRegistration() {
                 placeholder="Type Phone Number"
                 required
               />
-
               {errors.phone && (
                 <p className="mt-1 text-sm text-danger">{errors.phone}</p>
               )}
             </div>
+
             {/* Password */}
-            <FormField
-              icon={<LockKeyhole size={20} strokeWidth={2} />}
-              label="Password"
-              name="password"
-              type="password"
-              value={formData.password}
-              onChange={handleChange}
-              placeholder="Type password"
-              required
-            />
+            {!isEditMode && (
+              <FormField
+                icon={<LockKeyhole size={20} strokeWidth={2} />}
+                label="Password"
+                name="password"
+                type="password"
+                value={formData.password}
+                onChange={handleChange}
+                placeholder="Type password"
+                required
+              />
+            )}
+
             {/* Designation */}
             <FormField
               icon={<BriefcaseBusiness size={20} strokeWidth={2} />}
@@ -834,6 +980,7 @@ export default function CompanyRegistration() {
               placeholder="Type designation"
               required
             />
+
             {/* Address */}
             <FormField
               icon={<MapPin size={20} strokeWidth={2} />}
@@ -844,6 +991,7 @@ export default function CompanyRegistration() {
               placeholder="Type address"
               required
             />
+
             {/* Branch Count */}
             <div>
               <div className="mb-2 flex items-center gap-3">
@@ -855,12 +1003,10 @@ export default function CompanyRegistration() {
 
                 <label className="text-base font-bold text-text-primary">
                   Number of Branches
-                  <span className="ml-1 text-secondary">*</span>
                 </label>
               </div>
 
               <div className="flex items-center gap-3 border-b-2 border-secondary-light pb-3">
-                {/* Branch Options */}
                 <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
                   {["1", "2", "3", "4", "5", "Custom"].map((value) => (
                     <label
@@ -889,23 +1035,21 @@ export default function CompanyRegistration() {
                   ))}
                 </div>
 
-                {/* Custom Branch Count Input */}
                 {branchCount === "Custom" && (
                   <input
                     type="number"
-                    min="6"
-                    step="1"
+                    inputMode="numeric"
                     value={customBranchCount}
                     onChange={(event) => {
                       const value = event.target.value;
 
-                      // Allow empty input while typing
+                      // Empty input is valid.
                       if (value === "") {
                         setCustomBranchCount("");
                         return;
                       }
 
-                      // Allow numbers while typing
+                      // Allow only non-negative whole numbers.
                       if (/^\d+$/.test(value)) {
                         setCustomBranchCount(value);
                       }
@@ -914,7 +1058,6 @@ export default function CompanyRegistration() {
                       event.currentTarget.blur();
                     }}
                     onKeyDown={(event) => {
-                      // Prevent decimal point, minus sign, plus sign, e, E
                       if (
                         event.key === "." ||
                         event.key === "-" ||
@@ -924,27 +1067,8 @@ export default function CompanyRegistration() {
                         event.preventDefault();
                       }
                     }}
-                    placeholder="6+"
-                    required
-                    className="
-          w-20
-          shrink-0
-          appearance-none
-          border-b-2
-          border-secondary-light
-          bg-transparent
-          px-1
-          py-1
-          text-center
-          text-[16px]
-          text-text-primary
-          outline-none
-          transition-colors
-          placeholder:text-text-muted
-          focus:border-primary
-          [&::-webkit-inner-spin-button]:appearance-none
-          [&::-webkit-outer-spin-button]:appearance-none
-        "
+                    placeholder="0"
+                    className="w-20 shrink-0 appearance-none border-b-2 border-secondary-light bg-transparent px-1 py-1 text-center text-[16px] text-text-primary outline-none transition-colors placeholder:text-text-muted focus:border-primary [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
                   />
                 )}
               </div>
@@ -958,7 +1082,6 @@ export default function CompanyRegistration() {
                   strokeWidth={2}
                   className="text-text-primary"
                 />
-
                 <label className="text-base font-bold text-text-primary">
                   Company Logo
                 </label>
@@ -1004,15 +1127,19 @@ export default function CompanyRegistration() {
           </div>
 
           {/* General Error */}
-
           {errors.general && (
-            <div className="mt-5 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-danger">
+            <div className="mt-5 rounded-md border border-red-200 bg-red-50 px-4 py-2.5 text-sm text-danger">
               {errors.general}
             </div>
           )}
 
-          {/* Buttons */}
+          {successMessage && (
+            <div className="mt-5 rounded-md border border-green-200 bg-green-50 px-4 py-2.5 text-sm font-medium text-green-700">
+              {successMessage}
+            </div>
+          )}
 
+          {/* Buttons */}
           <div className="mt-8 flex items-center justify-between gap-4">
             <Link
               href="/"
@@ -1024,9 +1151,16 @@ export default function CompanyRegistration() {
 
             <button
               type="submit"
-              className="inline-flex min-w-[135px] items-center justify-center rounded-md bg-primary px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-primary-hover"
+              disabled={submitting || loadingCompany}
+              className="inline-flex min-w-[135px] items-center justify-center rounded-md bg-primary px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-60"
             >
-              Registration
+              {submitting
+                ? isEditMode
+                  ? "Updating..."
+                  : "Registering..."
+                : isEditMode
+                  ? "Update"
+                  : "Registration"}
             </button>
           </div>
         </form>
@@ -1036,7 +1170,7 @@ export default function CompanyRegistration() {
 }
 
 /* =========================================================
-   Reusable Input Field
+   Reusable Input Field Component
    ========================================================= */
 
 function FormField({
@@ -1045,6 +1179,7 @@ function FormField({
   name,
   value,
   onChange,
+  onBlur,
   placeholder,
   type = "text",
   required = false,
@@ -1056,6 +1191,7 @@ function FormField({
   onChange: (
     event: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>,
   ) => void;
+  onBlur?: (event: FocusEvent<HTMLInputElement | HTMLTextAreaElement>) => void;
   placeholder: string;
   type?: string;
   required?: boolean;
@@ -1078,6 +1214,7 @@ function FormField({
         name={name}
         value={value}
         onChange={onChange}
+        onBlur={onBlur}
         placeholder={placeholder}
         required={required}
         className="w-full border-b-2 border-secondary-light bg-transparent px-0 py-2 text-[16px] text-text-primary outline-none transition-colors placeholder:text-text-muted focus:border-primary"

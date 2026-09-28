@@ -132,7 +132,7 @@ const CreateRestaurantType = () => {
 
       if (editingId !== null) {
         const response = await fetch(
-          `{API_BASE_URL}/api/restaurant-category/${editingId}`,
+          `${API_BASE_URL}/api/restaurant-category/${editingId}`,
           {
             method: "PUT",
             headers: {
@@ -280,7 +280,7 @@ const CreateRestaurantType = () => {
       setLoading(true);
 
       const response = await fetch(
-        `{API_BASE_URL}/api/restaurant-category/${id}`,
+        `${API_BASE_URL}/api/restaurant-category/${id}`,
         {
           method: "DELETE",
           credentials: "include",

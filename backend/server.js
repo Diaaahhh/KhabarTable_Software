@@ -20,6 +20,7 @@ import menuCategoryRoutes from "./routes/create_menucategory.js";
 import menuSubcategoryRoutes from "./routes/create_menu_subcategory.js";
 import authorizationRoutes from "./routes/authorization.js";
 import createIngredientsRouter from "./routes/create_ingredients.js";
+import companyRoutes from "./routes/company.js";
 
 const app = express();
 
@@ -73,6 +74,7 @@ app.use("/api/authorization", authorizationRoutes);
 
 app.use("/api/menu-ingredients", createIngredientsRouter);
 
+app.use("/api/companies", companyRoutes);
 // =========================================================
 // DATABASE CONNECTION TEST
 // =========================================================

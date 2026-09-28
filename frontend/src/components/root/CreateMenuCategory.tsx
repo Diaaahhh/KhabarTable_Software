@@ -9,10 +9,12 @@ import {
   Trash2,
   Check,
   X,
+  AlertCircle,
+  CheckCircle2,
 } from "lucide-react";
-import Swal from "sweetalert2";
 
 import { API_BASE_URL } from "../../constants/api";
+import { capitalizeWords } from "../../utils/formatText";
 
 interface RestaurantCategory {
   id: number;
@@ -23,6 +25,12 @@ interface MenuCategory {
   id: number;
   category_name: string;
   Restaurant_category_id: number;
+}
+
+interface StatusMessage {
+  type: "success" | "error" | "warning";
+  title: string;
+  text: string;
 }
 
 const CreateMenuCategory = () => {
@@ -44,6 +52,23 @@ const CreateMenuCategory = () => {
   const [editingRestaurantType, setEditingRestaurantType] = useState("");
   const [savingEdit, setSavingEdit] = useState(false);
   const [deletingId, setDeletingId] = useState<number | null>(null);
+
+  const [statusMessage, setStatusMessage] = useState<StatusMessage | null>(
+    null,
+  );
+
+  const showStatus = (
+    type: StatusMessage["type"],
+    title: string,
+    text: string,
+  ) => {
+    setStatusMessage({ type, title, text });
+  };
+
+  const clearStatus = () => {
+    setStatusMessage(null);
+  };
+
   // Fetch restaurant types
   const fetchRestaurantCategories = async () => {
     try {
@@ -65,12 +90,11 @@ const CreateMenuCategory = () => {
 
       setRestaurantCategories([]);
 
-      Swal.fire({
-        icon: "error",
-        title: "Failed to load restaurant types",
-        text: "Unable to load restaurant types from the server.",
-        confirmButtonColor: "#7d1119",
-      });
+      showStatus(
+        "error",
+        "Failed to load restaurant types",
+        "Unable to load restaurant types from the server.",
+      );
     } finally {
       setLoadingRestaurantTypes(false);
     }
@@ -95,12 +119,11 @@ const CreateMenuCategory = () => {
 
       setMenuCategories([]);
 
-      Swal.fire({
-        icon: "error",
-        title: "Failed to load menu categories",
-        text: "Unable to load menu categories from the server.",
-        confirmButtonColor: "#7d1119",
-      });
+      showStatus(
+        "error",
+        "Failed to load menu categories",
+        "Unable to load menu categories from the server.",
+      );
     } finally {
       setLoadingMenuCategories(false);
     }
@@ -112,28 +135,39 @@ const CreateMenuCategory = () => {
     fetchMenuCategories();
   }, []);
 
+  // Auto-dismiss status message
+  useEffect(() => {
+    if (!statusMessage) return;
+
+    const timer = setTimeout(() => {
+      setStatusMessage(null);
+    }, 4000);
+
+    return () => clearTimeout(timer);
+  }, [statusMessage]);
+
   // Submit form
   const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
 
+    clearStatus();
+
     if (!restaurantType) {
-      Swal.fire({
-        icon: "warning",
-        title: "Restaurant Type Required",
-        text: "Please select a restaurant type.",
-        confirmButtonColor: "#7d1119",
-      });
+      showStatus(
+        "warning",
+        "Restaurant Type Required",
+        "Please select a restaurant type.",
+      );
 
       return;
     }
 
     if (!menuCategory.trim()) {
-      Swal.fire({
-        icon: "warning",
-        title: "Menu Category Required",
-        text: "Please enter a menu category.",
-        confirmButtonColor: "#7d1119",
-      });
+      showStatus(
+        "warning",
+        "Menu Category Required",
+        "Please enter a menu category.",
+      );
 
       return;
     }
@@ -147,7 +181,7 @@ const CreateMenuCategory = () => {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          category_name: menuCategory.trim(),
+          category_name: capitalizeWords(menuCategory.trim()),
           Restaurant_category_id: Number(restaurantType),
         }),
       });
@@ -158,12 +192,11 @@ const CreateMenuCategory = () => {
         throw new Error(data.message || "Failed to create menu category.");
       }
 
-      Swal.fire({
-        icon: "success",
-        title: "Menu Category Created",
-        text: "The menu category has been created successfully.",
-        confirmButtonColor: "#7d1119",
-      });
+      showStatus(
+        "success",
+        "Menu Category Created",
+        "The menu category has been created successfully.",
+      );
 
       // Clear form
       setRestaurantType("");
@@ -174,49 +207,50 @@ const CreateMenuCategory = () => {
     } catch (error) {
       console.error("Error creating menu category:", error);
 
-      Swal.fire({
-        icon: "error",
-        title: "Creation Failed",
-        text:
-          error instanceof Error
-            ? error.message
-            : "Something went wrong while creating the menu category.",
-        confirmButtonColor: "#7d1119",
-      });
+      showStatus(
+        "error",
+        "Creation Failed",
+        error instanceof Error
+          ? error.message
+          : "Something went wrong while creating the menu category.",
+      );
     } finally {
       setSubmitting(false);
     }
   };
 
   const handleEdit = (category: MenuCategory) => {
+    clearStatus();
     setEditingId(category.id);
     setEditingCategoryName(category.category_name);
     setEditingRestaurantType(String(category.Restaurant_category_id));
   };
+
   const handleCancelEdit = () => {
     setEditingId(null);
     setEditingCategoryName("");
     setEditingRestaurantType("");
   };
+
   const handleSaveEdit = async (id: number) => {
+    clearStatus();
+
     if (!editingRestaurantType) {
-      Swal.fire({
-        icon: "warning",
-        title: "Restaurant Type Required",
-        text: "Please select a restaurant type.",
-        confirmButtonColor: "#7d1119",
-      });
+      showStatus(
+        "warning",
+        "Restaurant Type Required",
+        "Please select a restaurant type.",
+      );
 
       return;
     }
 
     if (!editingCategoryName.trim()) {
-      Swal.fire({
-        icon: "warning",
-        title: "Menu Category Required",
-        text: "Please enter a menu category.",
-        confirmButtonColor: "#7d1119",
-      });
+      showStatus(
+        "warning",
+        "Menu Category Required",
+        "Please enter a menu category.",
+      );
 
       return;
     }
@@ -232,7 +266,7 @@ const CreateMenuCategory = () => {
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
-            category_name: editingCategoryName.trim(),
+            category_name: capitalizeWords(editingCategoryName.trim()),
             Restaurant_category_id: Number(editingRestaurantType),
           }),
         },
@@ -244,12 +278,11 @@ const CreateMenuCategory = () => {
         throw new Error(data.message || "Failed to update menu category.");
       }
 
-      Swal.fire({
-        icon: "success",
-        title: "Updated Successfully",
-        text: "The menu category has been updated successfully.",
-        confirmButtonColor: "#7d1119",
-      });
+      showStatus(
+        "success",
+        "Updated Successfully",
+        "The menu category has been updated successfully.",
+      );
 
       handleCancelEdit();
 
@@ -257,32 +290,27 @@ const CreateMenuCategory = () => {
     } catch (error) {
       console.error("Error updating menu category:", error);
 
-      Swal.fire({
-        icon: "error",
-        title: "Update Failed",
-        text:
-          error instanceof Error
-            ? error.message
-            : "Something went wrong while updating the menu category.",
-        confirmButtonColor: "#7d1119",
-      });
+      showStatus(
+        "error",
+        "Update Failed",
+        error instanceof Error
+          ? error.message
+          : "Something went wrong while updating the menu category.",
+      );
     } finally {
       setSavingEdit(false);
     }
   };
-  const handleDelete = async (category: MenuCategory) => {
-    const result = await Swal.fire({
-      icon: "warning",
-      title: "Delete Menu Category?",
-      text: `Are you sure you want to delete "${category.category_name}"? This action cannot be undone.`,
-      showCancelButton: true,
-      confirmButtonText: "Yes, Delete",
-      cancelButtonText: "Cancel",
-      confirmButtonColor: "#d33",
-      cancelButtonColor: "#6b7280",
-    });
 
-    if (!result.isConfirmed) {
+  const handleDelete = async (category: MenuCategory) => {
+    clearStatus();
+
+    // Simple inline confirmation using window.confirm
+    const confirmed = window.confirm(
+      `Are you sure you want to delete "${category.category_name}"? This action cannot be undone.`,
+    );
+
+    if (!confirmed) {
       return;
     }
 
@@ -302,30 +330,43 @@ const CreateMenuCategory = () => {
         throw new Error(data.message || "Failed to delete menu category.");
       }
 
-      Swal.fire({
-        icon: "success",
-        title: "Deleted Successfully",
-        text: "The menu category has been deleted.",
-        confirmButtonColor: "#7d1119",
-      });
+      showStatus(
+        "success",
+        "Deleted Successfully",
+        "The menu category has been deleted.",
+      );
 
       await fetchMenuCategories();
     } catch (error) {
       console.error("Error deleting menu category:", error);
 
-      Swal.fire({
-        icon: "error",
-        title: "Delete Failed",
-        text:
-          error instanceof Error
-            ? error.message
-            : "Something went wrong while deleting the menu category.",
-        confirmButtonColor: "#7d1119",
-      });
+      showStatus(
+        "error",
+        "Delete Failed",
+        error instanceof Error
+          ? error.message
+          : "Something went wrong while deleting the menu category.",
+      );
     } finally {
       setDeletingId(null);
     }
   };
+
+  const statusStyles: Record<StatusMessage["type"], string> = {
+    success:
+      "border-green-300 bg-green-50 text-green-800 dark:border-green-800 dark:bg-green-950 dark:text-green-200",
+    error:
+      "border-red-300 bg-red-50 text-red-800 dark:border-red-800 dark:bg-red-950 dark:text-red-200",
+    warning:
+      "border-yellow-300 bg-yellow-50 text-yellow-800 dark:border-yellow-800 dark:bg-yellow-950 dark:text-yellow-200",
+  };
+
+  const StatusIcon = ({ type }: { type: StatusMessage["type"] }) => {
+    if (type === "success") return <CheckCircle2 className="h-5 w-5" />;
+    if (type === "warning") return <AlertCircle className="h-5 w-5" />;
+    return <AlertCircle className="h-5 w-5" />;
+  };
+
   return (
     <div className="min-h-screen bg-[var(--surface-dark)] p-4 md:p-6">
       {" "}
@@ -340,6 +381,26 @@ const CreateMenuCategory = () => {
             Create a menu category for a restaurant type.
           </p>
         </div>
+        {/* Status Message */}
+        {statusMessage && (
+          <div
+            className={`flex items-start gap-3 rounded-xl border px-4 py-3 text-sm ${statusStyles[statusMessage.type]}`}
+          >
+            <StatusIcon type={statusMessage.type} />
+            <div className="flex-1">
+              <p className="font-semibold">{statusMessage.title}</p>
+              <p className="mt-0.5">{statusMessage.text}</p>
+            </div>
+            <button
+              type="button"
+              onClick={clearStatus}
+              className="rounded-md p-1 transition hover:bg-black/10"
+              title="Dismiss"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+        )}
         {/* Form Card */}
         <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-5 shadow-sm">
           <form onSubmit={handleSubmit}>
@@ -390,6 +451,7 @@ const CreateMenuCategory = () => {
                   type="text"
                   value={menuCategory}
                   onChange={(e) => setMenuCategory(e.target.value)}
+                  onBlur={(e) => setMenuCategory(capitalizeWords(e.target.value))}
                   placeholder="Enter menu category"
                   disabled={submitting}
                   className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-4 py-2.5 text-sm text-[var(--text-primary)] outline-none transition placeholder:text-[var(--text-muted)] focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary)]/20 disabled:cursor-not-allowed disabled:bg-[var(--surface-grey)]"
@@ -522,6 +584,11 @@ const CreateMenuCategory = () => {
                               value={editingCategoryName}
                               onChange={(e) =>
                                 setEditingCategoryName(e.target.value)
+                              }
+                              onBlur={(e) =>
+                                setEditingCategoryName(
+                                  capitalizeWords(e.target.value),
+                                )
                               }
                               disabled={savingEdit}
                               className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm text-[var(--text-primary)] outline-none focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary)]/20 disabled:cursor-not-allowed disabled:opacity-60"

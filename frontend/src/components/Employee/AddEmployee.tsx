@@ -2,6 +2,7 @@
 
 import React, { useEffect, useRef, useState } from "react";
 import { API_BASE_URL } from "../../constants/api";
+
 /* =========================================================
    CUSTOM DATE PICKER
    ========================================================= */
@@ -43,11 +44,6 @@ const CustomDatePicker = ({ value, onChange, placeholder = "Select date" }) => {
     "December",
   ];
 
-  /*
-    Years available in the year dropdown.
-
-    1950 -> current year + 10
-  */
   const currentYear = today.getFullYear();
 
   const years = Array.from(
@@ -109,9 +105,6 @@ const CustomDatePicker = ({ value, onChange, placeholder = "Select date" }) => {
 
   const calendarDays = [];
 
-  /*
-    Previous month's dates
-  */
   for (let i = firstDay - 1; i >= 0; i--) {
     calendarDays.push({
       day: previousMonthDays - i,
@@ -120,9 +113,6 @@ const CustomDatePicker = ({ value, onChange, placeholder = "Select date" }) => {
     });
   }
 
-  /*
-    Current month's dates
-  */
   for (let day = 1; day <= daysInMonth; day++) {
     calendarDays.push({
       day,
@@ -131,9 +121,6 @@ const CustomDatePicker = ({ value, onChange, placeholder = "Select date" }) => {
     });
   }
 
-  /*
-    Next month's dates
-  */
   const remainingDays = 42 - calendarDays.length;
 
   for (let day = 1; day <= remainingDays; day++) {
@@ -200,19 +187,11 @@ const CustomDatePicker = ({ value, onChange, placeholder = "Select date" }) => {
     setViewDate(new Date(year, month + 1, 1));
   };
 
-  /* =========================================================
-     CHANGE MONTH
-     ========================================================= */
-
   const changeMonth = (monthIndex) => {
     setViewDate(new Date(year, monthIndex, 1));
 
     setShowMonths(false);
   };
-
-  /* =========================================================
-     CHANGE YEAR
-     ========================================================= */
 
   const changeYear = (selectedYear) => {
     setViewDate(new Date(selectedYear, month, 1));
@@ -244,10 +223,6 @@ const CustomDatePicker = ({ value, onChange, placeholder = "Select date" }) => {
 
   return (
     <div ref={calendarRef} className="relative w-full">
-      {/* =====================================================
-          DATE INPUT BUTTON
-      ===================================================== */}
-
       <button
         type="button"
         onClick={() => {
@@ -261,7 +236,6 @@ const CustomDatePicker = ({ value, onChange, placeholder = "Select date" }) => {
           {formatDisplayDate(value)}
         </span>
 
-        {/* Calendar SVG */}
         <svg
           width="18"
           height="18"
@@ -281,18 +255,9 @@ const CustomDatePicker = ({ value, onChange, placeholder = "Select date" }) => {
         </svg>
       </button>
 
-      {/* =====================================================
-          CALENDAR POPUP
-      ===================================================== */}
-
       {isOpen && (
         <div className="absolute left-0 top-full z-50 mt-2 w-[300px] rounded-xl border border-border bg-white p-3 shadow-xl">
-          {/* =================================================
-              HEADER
-          ================================================= */}
-
           <div className="mb-3 flex items-center justify-between">
-            {/* Previous Month */}
             <button
               type="button"
               onClick={goToPreviousMonth}
@@ -311,9 +276,7 @@ const CustomDatePicker = ({ value, onChange, placeholder = "Select date" }) => {
               </svg>
             </button>
 
-            {/* Month + Year */}
             <div className="flex items-center gap-1">
-              {/* Month */}
               <div className="relative">
                 <button
                   type="button"
@@ -338,7 +301,6 @@ const CustomDatePicker = ({ value, onChange, placeholder = "Select date" }) => {
                   </svg>
                 </button>
 
-                {/* Month Dropdown */}
                 {showMonths && (
                   <div className="absolute left-0 top-full z-50 mt-1 max-h-52 w-32 overflow-y-auto rounded-lg border border-border bg-white p-1 shadow-lg">
                     {months.map((monthName, index) => (
@@ -359,7 +321,6 @@ const CustomDatePicker = ({ value, onChange, placeholder = "Select date" }) => {
                 )}
               </div>
 
-              {/* Year */}
               <div className="relative">
                 <button
                   type="button"
@@ -384,7 +345,6 @@ const CustomDatePicker = ({ value, onChange, placeholder = "Select date" }) => {
                   </svg>
                 </button>
 
-                {/* Year Dropdown */}
                 {showYears && (
                   <div className="absolute right-0 top-full z-50 mt-1 max-h-52 w-20 overflow-y-auto rounded-lg border border-border bg-white p-1 shadow-lg">
                     {years.map((yearItem) => (
@@ -406,7 +366,6 @@ const CustomDatePicker = ({ value, onChange, placeholder = "Select date" }) => {
               </div>
             </div>
 
-            {/* Next Month */}
             <button
               type="button"
               onClick={goToNextMonth}
@@ -426,10 +385,6 @@ const CustomDatePicker = ({ value, onChange, placeholder = "Select date" }) => {
             </button>
           </div>
 
-          {/* =================================================
-              WEEK DAYS
-          ================================================= */}
-
           <div className="mb-1 grid grid-cols-7">
             {["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"].map((day) => (
               <div
@@ -440,10 +395,6 @@ const CustomDatePicker = ({ value, onChange, placeholder = "Select date" }) => {
               </div>
             ))}
           </div>
-
-          {/* =================================================
-              CALENDAR DATES
-          ================================================= */}
 
           <div className="grid grid-cols-7 gap-y-1">
             {calendarDays.map((item, index) => {
@@ -473,10 +424,6 @@ const CustomDatePicker = ({ value, onChange, placeholder = "Select date" }) => {
             })}
           </div>
 
-          {/* =================================================
-              TODAY BUTTON
-          ================================================= */}
-
           <div className="mt-3 border-t border-border pt-2">
             <button
               type="button"
@@ -491,6 +438,11 @@ const CustomDatePicker = ({ value, onChange, placeholder = "Select date" }) => {
     </div>
   );
 };
+
+/* =========================================================
+   ADD EMPLOYEE
+   ========================================================= */
+
 const AddEmployee = () => {
   const [formData, setFormData] = useState({
     employee_id: "",
@@ -516,7 +468,8 @@ const AddEmployee = () => {
     leaving_date: "",
     employment_status: "active",
   });
-
+  const [isCheckingDuplicate, setIsCheckingDuplicate] = useState(false);
+  const [employeeIdDuplicate, setEmployeeIdDuplicate] = useState(false);
   const [photo, setPhoto] = useState(null);
   const [photoPreview, setPhotoPreview] = useState("");
   const [photoError, setPhotoError] = useState("");
@@ -526,6 +479,18 @@ const AddEmployee = () => {
     type: "",
     text: "",
   });
+
+  // Debounce timer for employee_id duplicate check
+  const employeeIdDuplicateTimerRef = useRef(null);
+
+  // Abort controller to cancel in-flight duplicate checks
+  const duplicateAbortRef = useRef(null);
+
+  // Track the latest employee_id value without re-rendering
+  const latestEmployeeIdRef = useRef("");
+
+  // Form ref so we can safely reset the form
+  const formRef = useRef(null);
 
   /* =========================================================
      HANDLE INPUT
@@ -539,7 +504,6 @@ const AddEmployee = () => {
       [name]: value,
     }));
 
-    // Remove error once user starts correcting the field
     if (errors[name]) {
       setErrors((prev) => ({
         ...prev,
@@ -548,10 +512,141 @@ const AddEmployee = () => {
     }
   };
 
+  /* =========================================================
+     CHECK DUPLICATE EMPLOYEE ID ON SERVER
+     ========================================================= */
+
+  const checkEmployeeIdDuplicate = async (employeeId: string) => {
+    const value = employeeId.trim();
+
+    if (!value) {
+      setEmployeeIdDuplicate(false);
+      return false;
+    }
+
+    setIsCheckingDuplicate(true);
+
+    try {
+      const response = await fetch(
+        `${API_BASE_URL}/api/employees/check-employee-id`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          credentials: "include",
+          body: JSON.stringify({
+            employee_id: value,
+
+            // IMPORTANT:
+            // Keep this if your page supports editing an employee.
+            // Replace `editingId` with your actual edit employee ID state.
+            ...(editingId ? { exclude_id: editingId } : {}),
+          }),
+        },
+      );
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.message || "Failed to check employee ID.");
+      }
+
+      setEmployeeIdDuplicate(data.exists === true);
+
+      return data.exists === true;
+    } catch (error) {
+      console.error("Employee ID duplicate check error:", error);
+
+      setEmployeeIdDuplicate(false);
+
+      return false;
+    } finally {
+      setIsCheckingDuplicate(false);
+    }
+  };
+
+  /* =========================================================
+     HANDLE EMPLOYEE ID CHANGE (with debounced duplicate check)
+     ========================================================= */
+
+  const handleEmployeeIdChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value;
+
+    setFormData((prev) => ({
+      ...prev,
+      employee_id: value,
+    }));
+
+    // Clear previous duplicate error while typing
+    if (employeeIdDuplicate) {
+      setEmployeeIdDuplicate(false);
+    }
+
+    if (errors.employee_id) {
+      setErrors((prev) => ({
+        ...prev,
+        employee_id: "",
+      }));
+    }
+  };
+
+  /* =========================================================
+     HANDLE EMPLOYEE ID BLUR (immediate check)
+     ========================================================= */
+
+  const handleEmployeeIdBlur = async () => {
+    const value = formData.employee_id.trim();
+
+    if (!value) {
+      setEmployeeIdDuplicate(false);
+
+      setErrors((prev) => ({
+        ...prev,
+        employee_id: "Employee ID is required.",
+      }));
+
+      return;
+    }
+
+    const exists = await checkEmployeeIdDuplicate(value);
+
+    if (exists) {
+      setErrors((prev) => ({
+        ...prev,
+        employee_id: "Employee ID already exists.",
+      }));
+    } else {
+      setErrors((prev) => ({
+        ...prev,
+        employee_id: "",
+      }));
+    }
+  };
+
+  /* =========================================================
+     CLEANUP TIMERS ON UNMOUNT
+     ========================================================= */
+
+  useEffect(() => {
+    return () => {
+      if (employeeIdDuplicateTimerRef.current) {
+        clearTimeout(employeeIdDuplicateTimerRef.current);
+      }
+
+      if (duplicateAbortRef.current) {
+        duplicateAbortRef.current.abort();
+      }
+    };
+  }, []);
+
+  /* =========================================================
+     HANDLE NAME CHANGE (alphabets and spaces only)
+     ========================================================= */
+
   const handleNameChange = (e) => {
     const { name, value } = e.target;
 
-    // Allow alphabets and spaces only
     const filteredValue = value.replace(/[^A-Za-z\s]/g, "");
 
     setFormData((prev) => ({
@@ -566,6 +661,7 @@ const AddEmployee = () => {
       }));
     }
   };
+
   /* =========================================================
      NUMBER ONLY
      ========================================================= */
@@ -599,10 +695,6 @@ const AddEmployee = () => {
   };
 
   /* =========================================================
-     DATE PICKER
-     ========================================================= */
-
-  /* =========================================================
      PHOTO COMPRESSOR
      ========================================================= */
 
@@ -616,13 +708,11 @@ const AddEmployee = () => {
         image.onload = () => {
           const canvas = document.createElement("canvas");
 
-          // Crop to 1:1
           const size = Math.min(image.width, image.height);
 
           const sourceX = (image.width - size) / 2;
           const sourceY = (image.height - size) / 2;
 
-          // Keep the final image reasonably small for performance
           const outputSize = Math.min(size, 800);
 
           canvas.width = outputSize;
@@ -657,7 +747,6 @@ const AddEmployee = () => {
                   return;
                 }
 
-                // If already under 50KB
                 if (blob.size <= maxSize || quality <= 0.1) {
                   resolve(
                     new File([blob], "employee-photo.jpg", {
@@ -717,10 +806,15 @@ const AddEmployee = () => {
         return;
       }
 
-      setPhoto(compressedFile);
+      setPhotoPreview((previousUrl) => {
+        if (previousUrl) {
+          URL.revokeObjectURL(previousUrl);
+        }
 
-      const previewUrl = URL.createObjectURL(compressedFile);
-      setPhotoPreview(previewUrl);
+        return URL.createObjectURL(compressedFile);
+      });
+
+      setPhoto(compressedFile);
     } catch (error) {
       setPhotoError("Unable to process this image.");
     }
@@ -799,20 +893,26 @@ const AddEmployee = () => {
   };
 
   /* =========================================================
-   SUBMIT
-   ========================================================= */
+     SUBMIT
+     ========================================================= */
 
   const handleSubmit = async (e) => {
     e.preventDefault();
 
-    // Clear previous submit message
     setSubmitMessage({
       type: "",
       text: "",
     });
 
-    // Validate form
     const validationErrors = validateForm();
+
+    // Preserve any existing duplicate error from the real-time check
+    if (
+      errors.employee_id &&
+      errors.employee_id === "This Employee ID already exists."
+    ) {
+      validationErrors.employee_id = errors.employee_id;
+    }
 
     if (Object.keys(validationErrors).length > 0) {
       setErrors(validationErrors);
@@ -822,10 +922,19 @@ const AddEmployee = () => {
     try {
       setIsSubmitting(true);
 
-      /*
-      FormData is required because the employee photo
-      is being uploaded together with the employee data.
-    */
+      // Final duplicate check before submitting
+      const duplicateExists = await checkEmployeeIdDuplicate(
+        formData.employee_id.trim(),
+      );
+
+      if (duplicateExists) {
+        setErrors((prev) => ({
+          ...prev,
+          employee_id: "This Employee ID already exists.",
+        }));
+
+        return;
+      }
 
       const data = new FormData();
 
@@ -833,54 +942,40 @@ const AddEmployee = () => {
         data.append(key, value);
       });
 
-      /*
-      Add photo if the user selected one.
-
-      The backend will save it inside:
-
-      uploads/employees
-    */
-
       if (photo) {
         data.append("photo", photo);
       }
-
-      // --------------------------------------------------
-      // Send data to backend
-      // --------------------------------------------------
 
       const response = await fetch(
         `${API_BASE_URL}/api/employees/create-employee`,
         {
           method: "POST",
-
-          /*
-          IMPORTANT:
-
-          Do NOT manually set Content-Type.
-
-          Browser automatically sets:
-
-          multipart/form-data; boundary=...
-        */
-
           credentials: "include",
-
           body: data,
         },
       );
 
-      // --------------------------------------------------
-      // Read backend response
-      // --------------------------------------------------
-
       const result = await response.json();
 
-      // --------------------------------------------------
-      // Backend returned an error
-      // --------------------------------------------------
-
       if (!response.ok) {
+        if (
+          response.status === 409 &&
+          result.message &&
+          result.message.toLowerCase().includes("employee id")
+        ) {
+          setErrors((prev) => ({
+            ...prev,
+            employee_id: result.message,
+          }));
+
+          setSubmitMessage({
+            type: "error",
+            text: result.message,
+          });
+
+          return;
+        }
+
         setSubmitMessage({
           type: "error",
           text: result.message || "Failed to create employee.",
@@ -889,19 +984,25 @@ const AddEmployee = () => {
         return;
       }
 
-      // --------------------------------------------------
-      // Success
-      // --------------------------------------------------
-
       setSubmitMessage({
         type: "success",
         text: result.message || "Employee created successfully.",
       });
 
-      // --------------------------------------------------
-      // Reset form
-      // --------------------------------------------------
+      // Clear any pending duplicate timer / in-flight request
+      if (employeeIdDuplicateTimerRef.current) {
+        clearTimeout(employeeIdDuplicateTimerRef.current);
+        employeeIdDuplicateTimerRef.current = null;
+      }
 
+      if (duplicateAbortRef.current) {
+        duplicateAbortRef.current.abort();
+        duplicateAbortRef.current = null;
+      }
+
+      latestEmployeeIdRef.current = "";
+
+      // Reset form state
       setFormData({
         employee_id: "",
         first_name: "",
@@ -928,12 +1029,21 @@ const AddEmployee = () => {
       });
 
       setPhoto(null);
-      setPhotoPreview("");
+
+      setPhotoPreview((previousUrl) => {
+        if (previousUrl) {
+          URL.revokeObjectURL(previousUrl);
+        }
+
+        return "";
+      });
+
       setPhotoError("");
       setErrors({});
 
-      // Clear file input if needed
-      e.target.reset();
+      if (formRef.current) {
+        formRef.current.reset();
+      }
     } catch (error) {
       console.error("Create employee error:", error);
 
@@ -963,10 +1073,6 @@ const AddEmployee = () => {
   /* =========================================================
      DATE FIELD COMPONENT
      ========================================================= */
-
-  /* =========================================================
-   DATE FIELD COMPONENT
-   ========================================================= */
 
   const DateField = ({ label, name, required = false }) => (
     <div>
@@ -1014,7 +1120,7 @@ const AddEmployee = () => {
           </p>
         </div>
 
-        <form onSubmit={handleSubmit}>
+        <form ref={formRef} onSubmit={handleSubmit}>
           {/* =================================================
               PERSONAL INFORMATION
           ================================================= */}
@@ -1035,14 +1141,43 @@ const AddEmployee = () => {
                   Employee ID <span className="text-danger">*</span>
                 </label>
 
-                <input
-                  type="text"
-                  name="employee_id"
-                  value={formData.employee_id}
-                  onChange={handleChange}
-                  placeholder="Enter employee ID"
-                  className={inputStyle}
-                />
+                <div className="relative">
+                  <input
+                    type="text"
+                    name="employee_id"
+                    value={formData.employee_id}
+                    onChange={handleEmployeeIdChange}
+                    onBlur={handleEmployeeIdBlur}
+                    placeholder="Enter employee ID"
+                    className={`${inputStyle} ${
+                      isCheckingDuplicate ? "pr-9" : ""
+                    }`}
+                  />
+
+                  {isCheckingDuplicate && (
+                    <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2">
+                      <svg
+                        className="h-4 w-4 animate-spin text-text-muted"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                      >
+                        <circle
+                          cx="12"
+                          cy="12"
+                          r="10"
+                          stroke="currentColor"
+                          strokeWidth="4"
+                          opacity="0.25"
+                        />
+                        <path
+                          d="M22 12a10 10 0 0 1-10 10"
+                          stroke="currentColor"
+                          strokeWidth="4"
+                        />
+                      </svg>
+                    </span>
+                  )}
+                </div>
 
                 {errors.employee_id && (
                   <p className={errorStyle}>{errors.employee_id}</p>
@@ -1509,7 +1644,6 @@ const AddEmployee = () => {
             </div>
 
             <div className="flex flex-col items-center">
-              {/* 1:1 Preview */}
               <div className="mb-4 h-40 w-40 overflow-hidden rounded-xl border-2 border-dashed border-border bg-surface-grey">
                 {photoPreview ? (
                   <img
@@ -1567,8 +1701,8 @@ const AddEmployee = () => {
           </section>
 
           {/* =================================================
-    SUBMIT MESSAGE
-================================================= */}
+              SUBMIT MESSAGE
+          ================================================= */}
 
           {submitMessage.text && (
             <div
@@ -1583,8 +1717,8 @@ const AddEmployee = () => {
           )}
 
           {/* =================================================
-    ACTIONS
-================================================= */}
+              ACTIONS
+          ================================================= */}
 
           <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
             <button
@@ -1597,10 +1731,14 @@ const AddEmployee = () => {
 
             <button
               type="submit"
-              disabled={isSubmitting}
+              disabled={isSubmitting || isCheckingDuplicate}
               className="rounded-lg bg-primary px-7 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {isSubmitting ? "Creating Employee..." : "Create Employee"}
+              {isSubmitting
+                ? "Creating Employee..."
+                : isCheckingDuplicate
+                  ? "Checking..."
+                  : "Create Employee"}
             </button>
           </div>
         </form>
