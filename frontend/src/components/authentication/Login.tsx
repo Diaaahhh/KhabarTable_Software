@@ -2,33 +2,30 @@
 
 import { FormEvent, useState } from "react";
 import { useRouter } from "next/navigation";
-import Swal from "sweetalert2";
-import {API_BASE_URL} from "../../constants/api"
+import { API_BASE_URL } from "../../constants/api";
 
 export default function Login() {
-
   const router = useRouter();
 
   const [emailError, setEmailError] = useState("");
   const [passwordError, setPasswordError] = useState("");
   const [generalError, setGeneralError] = useState("");
+  const [successMessage, setSuccessMessage] = useState("");
   const [loading, setLoading] = useState(false);
 
-
   const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
-
     e.preventDefault();
 
-    // Clear previous errors
+    // Clear previous messages
     setEmailError("");
     setPasswordError("");
     setGeneralError("");
+    setSuccessMessage("");
 
     const formData = new FormData(e.currentTarget);
 
     const email = formData.get("email")?.toString().trim();
     const password = formData.get("password")?.toString();
-
 
     // ---------------------------------------------------------
     // Frontend validation
@@ -44,116 +41,80 @@ export default function Login() {
       return;
     }
 
-
     try {
-
       setLoading(true);
-
 
       // -------------------------------------------------------
       // Send login request to backend
       // -------------------------------------------------------
 
-      const response = await fetch(
-        `${API_BASE_URL}/api/auth/login`,
-        {
-          method: "POST",
-
-          headers: {
-            "Content-Type": "application/json",
-          },
-
-          credentials: "include",
-
-          body: JSON.stringify({
-            email,
-            password,
-          }),
-        }
-      );
-
+      const response = await fetch(`${API_BASE_URL}/api/auth/login`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        credentials: "include",
+        body: JSON.stringify({
+          email,
+          password,
+        }),
+      });
 
       const data = await response.json();
-
 
       // -------------------------------------------------------
       // User not found
       // -------------------------------------------------------
 
       if (data.code === "USER_NOT_FOUND") {
-
         setEmailError("No such user found.");
-
         return;
       }
-
 
       // -------------------------------------------------------
       // Wrong password
       // -------------------------------------------------------
 
       if (data.code === "WRONG_PASSWORD") {
-
         setPasswordError("Wrong password.");
-
         return;
       }
-
 
       // -------------------------------------------------------
       // Other backend error
       // -------------------------------------------------------
 
       if (!response.ok || !data.success) {
-
         setGeneralError(
           data.message || "Login failed. Please try again."
         );
-
         return;
       }
-
 
       // -------------------------------------------------------
       // Successful login
       // -------------------------------------------------------
 
-      await Swal.fire({
-        icon: "success",
-        title: "Login Successful!",
-        text: "Welcome back.",
-        confirmButtonColor: "#7d1119",
-        confirmButtonText: "Continue",
-      });
+      setSuccessMessage("Login successful. Welcome back!");
 
-
-      // -------------------------------------------------------
-      // Navigate to home page
-      // -------------------------------------------------------
-
-      router.push("/");
-
+      // Give the user a moment to see the success message
+      setTimeout(() => {
+        router.push("/");
+      }, 700);
     } catch (error) {
-
       console.error("Login request failed:", error);
 
       setGeneralError(
         "Unable to connect to the server. Please try again."
       );
-
     } finally {
-
       setLoading(false);
-
     }
   };
 
-
   return (
     <main className="login-page">
-
       <div className="flex min-h-screen w-full items-center justify-center px-6 sm:px-10">
-
         {/* Login Form */}
         <div
           className="
@@ -167,10 +128,8 @@ export default function Login() {
             sm:p-9
           "
         >
-
           {/* Heading */}
           <div className="mb-8 text-center">
-
             <h1 className="text-[30px] font-bold leading-tight text-palette-dark">
               Welcome Back
             </h1>
@@ -178,19 +137,15 @@ export default function Login() {
             <p className="mt-2 text-sm text-text-secondary">
               Login to your account
             </p>
-
           </div>
-
 
           {/* Login Form */}
           <form
             onSubmit={handleSubmit}
             className="flex flex-col gap-5"
           >
-
             {/* Email */}
             <div className="flex flex-col gap-2">
-
               <label
                 htmlFor="email"
                 className="text-sm font-semibold text-text-primary"
@@ -202,7 +157,6 @@ export default function Login() {
                 id="email"
                 name="email"
                 type="email"
-                // value="moin@iglweb.com"
                 placeholder="Enter your email"
                 required
                 className="
@@ -229,13 +183,10 @@ export default function Login() {
                   {emailError}
                 </p>
               )}
-
             </div>
-
 
             {/* Password */}
             <div className="flex flex-col gap-2">
-
               <label
                 htmlFor="password"
                 className="text-sm font-semibold text-text-primary"
@@ -247,7 +198,7 @@ export default function Login() {
                 id="password"
                 name="password"
                 type="password"
-                defaultValue= "000000"
+                defaultValue="000000"
                 placeholder="Enter your password"
                 required
                 className="
@@ -274,17 +225,46 @@ export default function Login() {
                   {passwordError}
                 </p>
               )}
-
             </div>
-
 
             {/* General Error */}
             {generalError && (
-              <p className="text-center text-sm text-danger">
+              <div
+                className="
+                  rounded-md
+                  border
+                  border-danger/20
+                  bg-danger/5
+                  px-3
+                  py-2.5
+                  text-center
+                  text-sm
+                  text-danger
+                "
+              >
                 {generalError}
-              </p>
+              </div>
             )}
 
+            {/* Success Message */}
+            {successMessage && (
+              <div
+                className="
+                  rounded-md
+                  border
+                  border-green-200
+                  bg-green-50
+                  px-3
+                  py-2.5
+                  text-center
+                  text-sm
+                  font-medium
+                  text-green-700
+                "
+              >
+                {successMessage}
+              </div>
+            )}
 
             {/* Login Button */}
             <button
@@ -312,13 +292,9 @@ export default function Login() {
             >
               {loading ? "Logging in..." : "Login"}
             </button>
-
           </form>
-
         </div>
-
       </div>
-
     </main>
   );
 }

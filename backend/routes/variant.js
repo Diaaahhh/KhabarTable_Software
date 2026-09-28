@@ -5,24 +5,13 @@ const router = express.Router();
 
 /**
  * ============================================================================
- * HELPER: GET MULTIPLE RESTAURANT TYPES FROM COOKIE
+ * HELPER: GET LOGGED-IN USER ID FROM COOKIE
  * ============================================================================
  *
- * Example users.restaurant_type:
- *
- * [4,3,5]
- *
- * Cookie may contain:
- *
- * "[4,3,5]"
- * ["4","3","5"]
- * [4,3,5]
- *
- * The function always returns:
- *
- * [4, 3, 5]
+ * The cookie is only used to identify the logged-in user.
+ * Restaurant type is NOT taken from the cookie.
  */
-const getRestaurantTypes = (req) => {
+const getUserIdFromCookie = (req) => {
   try {
     const cookies = req.cookies || {};
 
@@ -31,27 +20,14 @@ const getRestaurantTypes = (req) => {
       cookies.auth,
       cookies.userInfo,
       cookies.user_info,
-      cookies.restaurant,
-      cookies.restaurant_type,
     ];
 
-    /**
-     * ---------------------------------------------------------
-     * Helper to normalize restaurant_type
-     * ---------------------------------------------------------
-     */
-    const normalizeRestaurantTypes = (value) => {
-      if (
-        value === null ||
-        value === undefined ||
-        value === ""
-      ) {
-        return null;
-      }
+    for (const cookieValue of possibleCookies) {
+      if (!cookieValue) continue;
 
-      let parsedValue = value;
+      let parsedValue = cookieValue;
 
-      // Decode URI encoded cookie value
+      // Decode URI encoded cookie
       if (typeof parsedValue === "string") {
         try {
           parsedValue = decodeURIComponent(parsedValue);
@@ -65,137 +41,131 @@ const getRestaurantTypes = (req) => {
         try {
           parsedValue = JSON.parse(parsedValue);
         } catch {
-          // If it is an old single numeric value
-          const singleValue = Number(parsedValue);
-
-          if (
-            Number.isInteger(singleValue) &&
-            singleValue > 0
-          ) {
-            return [singleValue];
-          }
-
-          return null;
+          // Not JSON
         }
       }
 
-      // Support a single number
-      if (!Array.isArray(parsedValue)) {
-        parsedValue = [parsedValue];
-      }
-
-      // Convert everything to numbers
-      const restaurantTypeIds = parsedValue
-        .map((id) => Number(id))
-        .filter(
-          (id) =>
-            Number.isInteger(id) &&
-            id > 0
-        );
-
-      if (restaurantTypeIds.length === 0) {
-        return null;
-      }
-
-      // Remove duplicate IDs
-      return [...new Set(restaurantTypeIds)];
-    };
-
-    /**
-     * ---------------------------------------------------------
-     * First check known cookies
-     * ---------------------------------------------------------
-     */
-    for (const cookieValue of possibleCookies) {
-      if (!cookieValue) continue;
-
-      let parsedValue = cookieValue;
-
-      try {
-        parsedValue = decodeURIComponent(
-          String(parsedValue)
-        );
-      } catch {
-        // Continue with original value
-      }
-
-      try {
-        parsedValue = JSON.parse(parsedValue);
-      } catch {
-        // Not JSON
-      }
-
-      // Cookie contains user object
+      // If cookie contains a user object
       if (
         parsedValue &&
         typeof parsedValue === "object" &&
-        !Array.isArray(parsedValue) &&
-        parsedValue.restaurant_type !== undefined
+        !Array.isArray(parsedValue)
       ) {
-        const restaurantTypes =
-          normalizeRestaurantTypes(
-            parsedValue.restaurant_type
-          );
+        const userId =
+          parsedValue.id ??
+          parsedValue.user_id ??
+          parsedValue.userId;
 
-        if (restaurantTypes) {
-          return restaurantTypes;
+        const numericUserId = Number(userId);
+
+        if (
+          Number.isInteger(numericUserId) &&
+          numericUserId > 0
+        ) {
+          return numericUserId;
         }
       }
 
-      // Direct restaurant_type cookie
-      const directRestaurantTypes =
-        normalizeRestaurantTypes(parsedValue);
-
-      if (directRestaurantTypes) {
-        return directRestaurantTypes;
-      }
-    }
-
-    /**
-     * ---------------------------------------------------------
-     * Fallback: inspect all cookies
-     * ---------------------------------------------------------
-     */
-    for (const cookieValue of Object.values(cookies)) {
-      if (!cookieValue) continue;
-
-      let parsedValue = cookieValue;
-
-      try {
-        parsedValue = decodeURIComponent(
-          String(parsedValue)
-        );
-      } catch {
-        // Continue
-      }
-
-      try {
-        parsedValue = JSON.parse(parsedValue);
-      } catch {
-        // Continue
-      }
+      // If cookie directly contains user ID
+      const numericUserId = Number(parsedValue);
 
       if (
-        parsedValue &&
-        typeof parsedValue === "object" &&
-        !Array.isArray(parsedValue) &&
-        parsedValue.restaurant_type !== undefined
+        Number.isInteger(numericUserId) &&
+        numericUserId > 0
       ) {
-        const restaurantTypes =
-          normalizeRestaurantTypes(
-            parsedValue.restaurant_type
-          );
-
-        if (restaurantTypes) {
-          return restaurantTypes;
-        }
+        return numericUserId;
       }
     }
 
     return null;
   } catch (error) {
+    console.error("Error reading user ID from cookie:", error);
+    return null;
+  }
+};
+
+/**
+ * ============================================================================
+ * HELPER: GET RESTAURANT TYPES FROM USERS TABLE
+ * ============================================================================
+ *
+ * IMPORTANT:
+ * Restaurant type is fetched from:
+ *
+ * users.restaurant_type
+ *
+ * The cookie is ONLY used to identify the logged-in user.
+ */
+const getRestaurantTypes = async (req) => {
+  try {
+    const userId = getUserIdFromCookie(req);
+
+    if (!userId) {
+      return null;
+    }
+
+    const [rows] = await db.query(
+      `
+        SELECT restaurant_type
+        FROM users
+        WHERE id = ?
+        LIMIT 1
+      `,
+      [userId]
+    );
+
+    if (rows.length === 0) {
+      return null;
+    }
+
+    let restaurantType = rows[0].restaurant_type;
+
+    if (
+      restaurantType === null ||
+      restaurantType === undefined ||
+      restaurantType === ""
+    ) {
+      return null;
+    }
+
+    // If MySQL/driver returns JSON as string
+    if (typeof restaurantType === "string") {
+      try {
+        restaurantType = decodeURIComponent(restaurantType);
+      } catch {
+        // Keep original value
+      }
+
+      try {
+        restaurantType = JSON.parse(restaurantType);
+      } catch {
+        // It may be a single numeric value
+      }
+    }
+
+    // Support single numeric restaurant type
+    if (!Array.isArray(restaurantType)) {
+      restaurantType = [restaurantType];
+    }
+
+    // Convert IDs to numbers
+    const restaurantTypeIds = restaurantType
+      .map((id) => Number(id))
+      .filter(
+        (id) =>
+          Number.isInteger(id) &&
+          id > 0
+      );
+
+    if (restaurantTypeIds.length === 0) {
+      return null;
+    }
+
+    // Remove duplicates
+    return [...new Set(restaurantTypeIds)];
+  } catch (error) {
     console.error(
-      "Error reading restaurant types:",
+      "Error fetching restaurant types from users table:",
       error
     );
 
@@ -240,7 +210,7 @@ const createPlaceholders = (values) =>
 router.get("/categories", async (req, res) => {
   try {
     const restaurantTypes =
-      getRestaurantTypes(req);
+      await getRestaurantTypes(req);
 
     if (
       !restaurantTypes ||
@@ -311,7 +281,7 @@ router.get("/menu-items", async (req, res) => {
     } = req.query;
 
     const restaurantTypes =
-      getRestaurantTypes(req);
+      await getRestaurantTypes(req);
 
     if (
       !restaurantTypes ||
@@ -440,7 +410,7 @@ router.get("/variants", async (req, res) => {
     } = req.query;
 
     const restaurantTypes =
-      getRestaurantTypes(req);
+      await getRestaurantTypes(req);
 
     if (
       !restaurantTypes ||
@@ -535,16 +505,41 @@ router.get("/variants", async (req, res) => {
         ? "menu_variant_pizza"
         : "menu_variant";
 
-    const [variants] =
-      await db.query(
-        `
-          SELECT
-            id,
-            variant_name
-          FROM ${variantTable}
-          ORDER BY variant_name ASC
-        `
-      );
+    let variantQuery;
+
+if (variantTable === "menu_variant_pizza") {
+  // Pizza variants: numeric size order
+  variantQuery = `
+    SELECT
+      id,
+      variant_name
+    FROM menu_variant_pizza
+    ORDER BY
+      CAST(REPLACE(variant_name, '"', '') AS DECIMAL(10,2)) ASC
+  `;
+} else {
+  // Normal variants: fraction order first, then named sizes
+  variantQuery = `
+    SELECT
+      id,
+      variant_name
+    FROM menu_variant
+    ORDER BY
+      CASE
+        WHEN variant_name = '1:1' THEN 1
+        WHEN variant_name = '1:2' THEN 2
+        WHEN variant_name = '1:3' THEN 3
+        WHEN variant_name = '1:4' THEN 4
+        WHEN LOWER(variant_name) = 'full' THEN 5
+        WHEN LOWER(variant_name) = 'half' THEN 6
+        WHEN LOWER(variant_name) = 'small' THEN 7
+        ELSE 999
+      END ASC,
+      variant_name ASC
+  `;
+}
+
+const [variants] = await db.query(variantQuery);
 
     return res.status(200).json({
       success: true,
@@ -593,7 +588,7 @@ router.get("/ingredients", async (req, res) => {
     } = req.query;
 
     const restaurantTypes =
-      getRestaurantTypes(req);
+      await getRestaurantTypes(req);
 
     if (
       !restaurantTypes ||
