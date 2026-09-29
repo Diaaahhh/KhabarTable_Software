@@ -1,8 +1,16 @@
 "use client";
 
 import React, { FormEvent, useEffect, useMemo, useState } from "react";
-import { ChevronDown, Loader2, Plus } from "lucide-react";
-import Swal from "sweetalert2";
+
+import {
+  AlertCircle,
+  Check,
+  CheckCircle2,
+  ChevronDown,
+  Loader2,
+  Plus,
+  X,
+} from "lucide-react";
 
 import { API_BASE_URL } from "../../constants/api";
 
@@ -36,90 +44,95 @@ interface VariantPrice {
   price: string;
 }
 
+interface StatusMessage {
+  type: "success" | "error" | "warning";
+  title: string;
+  text: string;
+}
+
+const NO_VARIANT_ID = 0;
+
 const CreateMenuVariant = () => {
   const [categoryId, setCategoryId] = useState("");
   const [menuItemId, setMenuItemId] = useState("");
 
-  /*
-   * --------------------------------------------------------------------------
-   * Selected Variants
-   * --------------------------------------------------------------------------
-   */
+  /* ------------------------------------------------------------------------
+     Selected Variants
+     ------------------------------------------------------------------------ */
   const [selectedVariantIds, setSelectedVariantIds] = useState<number[]>([]);
 
-  /*
-   * --------------------------------------------------------------------------
-   * sell Price Per Variant
-   * --------------------------------------------------------------------------
-   */
+  /* ------------------------------------------------------------------------
+     Sell Price Per Variant
+     ------------------------------------------------------------------------ */
   const [variantPrices, setVariantPrices] = useState<VariantPrice[]>([]);
 
-  /*
-   * --------------------------------------------------------------------------
-   * Data
-   * --------------------------------------------------------------------------
-   */
+  /* ------------------------------------------------------------------------
+     Data
+     ------------------------------------------------------------------------ */
   const [categories, setCategories] = useState<MenuCategory[]>([]);
   const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
   const [variants, setVariants] = useState<Variant[]>([]);
 
-  /*
-   * IMPORTANT:
-   * ingredientList now contains ALL ingredients allocated to
-   * the selected submenu/menu item.
-   *
-   * There is no ingredient selection anymore.
-   */
+  /* ------------------------------------------------------------------------
+     IMPORTANT:
+     ingredientList now contains ALL ingredients allocated to
+     the selected submenu/menu item.
+     ------------------------------------------------------------------------ */
   const [ingredientList, setIngredientList] = useState<Ingredient[]>([]);
 
-  /*
-   * --------------------------------------------------------------------------
-   * Ingredient Quantities
-   * --------------------------------------------------------------------------
-   *
-   * Structure:
-   *
-   * {
-   *   ingredientId: {
-   *     variantId: "quantity"
-   *   }
-   * }
-   *
-   * Example:
-   *
-   * {
-   *   1: {
-   *     6: "100",
-   *     9: "150"
-   *   },
-   *   2: {
-   *     6: "50",
-   *     9: "75"
-   *   }
-   * }
-   */
+  /* ------------------------------------------------------------------------
+     Ingredient Quantities
+     ------------------------------------------------------------------------ */
   const [ingredientQuantities, setIngredientQuantities] = useState<
     Record<number, Record<number, string>>
   >({});
 
   const [showVariants, setShowVariants] = useState(false);
 
-  /*
-   * --------------------------------------------------------------------------
-   * Loading States
-   * --------------------------------------------------------------------------
-   */
+  /* ------------------------------------------------------------------------
+     Loading States
+     ------------------------------------------------------------------------ */
   const [loadingCategories, setLoadingCategories] = useState(true);
   const [loadingMenuItems, setLoadingMenuItems] = useState(false);
   const [loadingVariants, setLoadingVariants] = useState(false);
   const [loadingIngredients, setLoadingIngredients] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
-  /*
-   * --------------------------------------------------------------------------
-   * Fetch Categories
-   * --------------------------------------------------------------------------
-   */
+  /* ------------------------------------------------------------------------
+     Inline Status Message
+     ------------------------------------------------------------------------ */
+  const [statusMessage, setStatusMessage] = useState<StatusMessage | null>(
+    null,
+  );
+
+  const showStatus = (
+    type: StatusMessage["type"],
+    title: string,
+    text: string,
+  ) => {
+    setStatusMessage({ type, title, text });
+  };
+
+  const clearStatus = () => {
+    setStatusMessage(null);
+  };
+
+  /* ------------------------------------------------------------------------
+     Auto-dismiss status
+     ------------------------------------------------------------------------ */
+  useEffect(() => {
+    if (!statusMessage) return;
+
+    const timer = setTimeout(() => {
+      setStatusMessage(null);
+    }, 4000);
+
+    return () => clearTimeout(timer);
+  }, [statusMessage]);
+
+  /* ------------------------------------------------------------------------
+     Fetch Categories
+     ------------------------------------------------------------------------ */
   const fetchCategories = async () => {
     try {
       setLoadingCategories(true);
@@ -141,23 +154,19 @@ const CreateMenuVariant = () => {
     } catch (error) {
       console.error("Error fetching categories:", error);
 
-      Swal.fire({
-        icon: "error",
-        title: "Failed to load categories",
-        text:
-          error instanceof Error ? error.message : "Unable to load categories.",
-        confirmButtonColor: "#7d1119",
-      });
+      showStatus(
+        "error",
+        "Failed to load categories",
+        error instanceof Error ? error.message : "Unable to load categories.",
+      );
     } finally {
       setLoadingCategories(false);
     }
   };
 
-  /*
-   * --------------------------------------------------------------------------
-   * Fetch Menu Items According To Category
-   * --------------------------------------------------------------------------
-   */
+  /* ------------------------------------------------------------------------
+     Fetch Menu Items According To Category
+     ------------------------------------------------------------------------ */
   const fetchMenuItems = async (selectedCategoryId: string) => {
     if (!selectedCategoryId) {
       setMenuItems([]);
@@ -186,28 +195,19 @@ const CreateMenuVariant = () => {
 
       setMenuItems([]);
 
-      Swal.fire({
-        icon: "error",
-        title: "Failed to load menu items",
-        text:
-          error instanceof Error ? error.message : "Unable to load menu items.",
-        confirmButtonColor: "#7d1119",
-      });
+      showStatus(
+        "error",
+        "Failed to load menu items",
+        error instanceof Error ? error.message : "Unable to load menu items.",
+      );
     } finally {
       setLoadingMenuItems(false);
     }
   };
 
-  /*
-   * --------------------------------------------------------------------------
-   * Fetch Variants According To Menu Item
-   * --------------------------------------------------------------------------
-   */
-  /*
-   * --------------------------------------------------------------------------
-   * Fetch Variants According To Menu Item and Category
-   * --------------------------------------------------------------------------
-   */
+  /* ------------------------------------------------------------------------
+     Fetch Variants According To Menu Item and Category
+     ------------------------------------------------------------------------ */
   const fetchVariants = async (selectedMenuItemId: string) => {
     if (!selectedMenuItemId) {
       setVariants([]);
@@ -236,33 +236,19 @@ const CreateMenuVariant = () => {
 
       setVariants([]);
 
-      Swal.fire({
-        icon: "error",
-        title: "Failed to load variants",
-        text:
-          error instanceof Error ? error.message : "Unable to load variants.",
-        confirmButtonColor: "#7d1119",
-      });
+      showStatus(
+        "error",
+        "Failed to load variants",
+        error instanceof Error ? error.message : "Unable to load variants.",
+      );
     } finally {
       setLoadingVariants(false);
     }
   };
 
-  /*
-   * --------------------------------------------------------------------------
-   * Fetch ALL Allocated Ingredients According To Menu Item
-   * --------------------------------------------------------------------------
-   *
-   * IMPORTANT:
-   *
-   * The backend endpoint should return only the ingredients that are
-   * allocated to this particular submenu/menu item.
-   *
-   * Example:
-   *
-   * /api/menu-varient/ingredients?menu_subcategory_id=123
-   *
-   */
+  /* ------------------------------------------------------------------------
+     Fetch ALL Allocated Ingredients According To Menu Item
+     ------------------------------------------------------------------------ */
   const fetchIngredients = async (selectedMenuItemId: string) => {
     if (!selectedMenuItemId) {
       setIngredientList([]);
@@ -285,56 +271,34 @@ const CreateMenuVariant = () => {
         throw new Error(data.message || "Failed to fetch ingredients.");
       }
 
-      /*
-       * These are automatically used in the pricing table.
-       * No checkbox/selection is required.
-       */
       setIngredientList(data.data || []);
     } catch (error) {
       console.error("Error fetching ingredients:", error);
 
       setIngredientList([]);
 
-      Swal.fire({
-        icon: "error",
-        title: "Failed to load ingredients",
-        text:
-          error instanceof Error
-            ? error.message
-            : "Unable to load ingredients.",
-        confirmButtonColor: "#7d1119",
-      });
+      showStatus(
+        "error",
+        "Failed to load ingredients",
+        error instanceof Error
+          ? error.message
+          : "Unable to load ingredients.",
+      );
     } finally {
       setLoadingIngredients(false);
     }
   };
 
-  /*
-   * --------------------------------------------------------------------------
-   * Initial Category Loading
-   * --------------------------------------------------------------------------
-   */
+  /* ------------------------------------------------------------------------
+     Initial Category Loading
+     ------------------------------------------------------------------------ */
   useEffect(() => {
     fetchCategories();
   }, []);
 
-  /*
-   * --------------------------------------------------------------------------
-   * Keep Ingredient Quantity Matrix In Sync
-   * --------------------------------------------------------------------------
-   *
-   * Whenever ingredients or variants change, make sure every combination
-   * has a quantity field.
-   *
-   * This means:
-   *
-   * Ingredient 1 + Variant 6
-   * Ingredient 1 + Variant 9
-   * Ingredient 2 + Variant 6
-   * Ingredient 2 + Variant 9
-   *
-   * etc.
-   */
+  /* ------------------------------------------------------------------------
+     Keep Ingredient Quantity Matrix In Sync
+     ------------------------------------------------------------------------ */
   useEffect(() => {
     setIngredientQuantities((previous) => {
       const updated: Record<number, Record<number, string>> = {};
@@ -352,19 +316,14 @@ const CreateMenuVariant = () => {
     });
   }, [ingredientList, selectedVariantIds]);
 
-  /*
-   * --------------------------------------------------------------------------
-   * Category Change
-   * --------------------------------------------------------------------------
-   */
+  /* ------------------------------------------------------------------------
+     Category Change
+     ------------------------------------------------------------------------ */
   const handleCategoryChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const value = e.target.value;
 
     setCategoryId(value);
 
-    /*
-     * Reset dependent fields.
-     */
     setMenuItemId("");
     setSelectedVariantIds([]);
     setVariantPrices([]);
@@ -379,26 +338,14 @@ const CreateMenuVariant = () => {
     }
   };
 
-  /*
-   * --------------------------------------------------------------------------
-   * Menu Item Change
-   * --------------------------------------------------------------------------
-   *
-   * As soon as the submenu/menu item is selected:
-   *
-   * 1. Fetch variants
-   * 2. Fetch ALL allocated ingredients
-   *
-   * Both requests run immediately.
-   */
+  /* ------------------------------------------------------------------------
+     Menu Item Change
+     ------------------------------------------------------------------------ */
   const handleMenuItemChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const value = e.target.value;
 
     setMenuItemId(value);
 
-    /*
-     * Reset dependent fields.
-     */
     setSelectedVariantIds([]);
     setVariantPrices([]);
     setVariants([]);
@@ -407,28 +354,44 @@ const CreateMenuVariant = () => {
     setShowVariants(false);
 
     if (value) {
-      /*
-       * Fetch both independently.
-       * They can run at the same time.
-       */
       fetchVariants(value);
       fetchIngredients(value);
     }
   };
 
-  /*
-   * --------------------------------------------------------------------------
-   * Variant Selection
-   * --------------------------------------------------------------------------
-   */
+  /* ------------------------------------------------------------------------
+     Variant Selection
+     ------------------------------------------------------------------------ */
   const handleVariantChange = (variantId: number) => {
+    if (variantId === NO_VARIANT_ID) {
+      setSelectedVariantIds((previous) => {
+        const exists = previous.includes(NO_VARIANT_ID);
+
+        if (exists) {
+          setVariantPrices((prices) =>
+            prices.filter((item) => item.variantId !== NO_VARIANT_ID),
+          );
+
+          return previous.filter((id) => id !== NO_VARIANT_ID);
+        }
+
+        setVariantPrices([
+          {
+            variantId: NO_VARIANT_ID,
+            price: "",
+          },
+        ]);
+
+        return [NO_VARIANT_ID];
+      });
+
+      return;
+    }
+
     setSelectedVariantIds((previous) => {
       const exists = previous.includes(variantId);
 
       if (exists) {
-        /*
-         * Remove variant price.
-         */
         setVariantPrices((prices) =>
           prices.filter((item) => item.variantId !== variantId),
         );
@@ -436,40 +399,34 @@ const CreateMenuVariant = () => {
         return previous.filter((id) => id !== variantId);
       }
 
-      /*
-       * Add variant with empty sell price.
-       */
+      const nextIds = previous.filter((id) => id !== NO_VARIANT_ID);
+
       setVariantPrices((prices) => [
-        ...prices,
-        {
-          variantId,
-          price: "",
-        },
+        ...prices.filter((item) => item.variantId !== NO_VARIANT_ID),
+        ...(!nextIds.includes(variantId)
+          ? [
+              {
+                variantId,
+                price: "",
+              },
+            ]
+          : []),
       ]);
 
-      return [...previous, variantId];
+      return [...nextIds, variantId];
     });
   };
 
-  /*
-   * --------------------------------------------------------------------------
-   * Select / Unselect All Variants
-   * --------------------------------------------------------------------------
-   */
+  /* ------------------------------------------------------------------------
+     Select / Unselect All Variants
+     ------------------------------------------------------------------------ */
   const handleSelectAllVariants = () => {
-    /*
-     * If everything is already selected,
-     * remove everything.
-     */
     if (selectedVariantIds.length === variants.length && variants.length > 0) {
       setSelectedVariantIds([]);
       setVariantPrices([]);
       return;
     }
 
-    /*
-     * Select all variants.
-     */
     const allIds = variants.map((variant) => variant.id);
 
     setSelectedVariantIds(allIds);
@@ -482,31 +439,20 @@ const CreateMenuVariant = () => {
     );
   };
 
-  /*
-   * --------------------------------------------------------------------------
-   * Quantity Change
-   * --------------------------------------------------------------------------
-   */
+  /* ------------------------------------------------------------------------
+     Quantity Change
+     ------------------------------------------------------------------------ */
   const handleQuantityChange = (
     ingredientId: number,
     variantId: number,
     quantity: string,
   ) => {
-    /*
-     * Allow:
-     *
-     * 10
-     * 10.
-     * 10.5
-     * empty string
-     */
     if (quantity !== "" && !/^\d*\.?\d*$/.test(quantity)) {
       return;
     }
 
     setIngredientQuantities((previous) => ({
       ...previous,
-
       [ingredientId]: {
         ...(previous[ingredientId] || {}),
         [variantId]: quantity,
@@ -514,20 +460,16 @@ const CreateMenuVariant = () => {
     }));
   };
 
-  /*
-   * --------------------------------------------------------------------------
-   * Get Quantity
-   * --------------------------------------------------------------------------
-   */
+  /* ------------------------------------------------------------------------
+     Get Quantity
+     ------------------------------------------------------------------------ */
   const getIngredientQuantity = (ingredientId: number, variantId: number) => {
     return ingredientQuantities[ingredientId]?.[variantId] || "";
   };
 
-  /*
-   * --------------------------------------------------------------------------
-   * sell Price Change
-   * --------------------------------------------------------------------------
-   */
+  /* ------------------------------------------------------------------------
+     Sell Price Change
+     ------------------------------------------------------------------------ */
   const handlePriceChange = (variantId: number, price: string) => {
     if (price !== "" && !/^\d*\.?\d*$/.test(price)) {
       return;
@@ -545,11 +487,9 @@ const CreateMenuVariant = () => {
     );
   };
 
-  /*
-   * --------------------------------------------------------------------------
-   * Get Ingredient Cost
-   * --------------------------------------------------------------------------
-   */
+  /* ------------------------------------------------------------------------
+     Get Ingredient Cost
+     ------------------------------------------------------------------------ */
   const getIngredientCost = (ingredientId: number, quantity: string) => {
     const ingredient = ingredientList.find((item) => item.id === ingredientId);
 
@@ -560,14 +500,9 @@ const CreateMenuVariant = () => {
     return Number(ingredient.cost_per_unit) * Number(quantity);
   };
 
-  /*
-   * --------------------------------------------------------------------------
-   * Calculate Total Cost For One Variant
-   * --------------------------------------------------------------------------
-   *
-   * IMPORTANT:
-   * Now we loop through ALL allocated ingredients.
-   */
+  /* ------------------------------------------------------------------------
+     Calculate Total Cost For One Variant
+     ------------------------------------------------------------------------ */
   const getVariantTotalCost = (variantId: number) => {
     return ingredientList.reduce((total, ingredient) => {
       const quantity = getIngredientQuantity(ingredient.id, variantId);
@@ -576,22 +511,18 @@ const CreateMenuVariant = () => {
     }, 0);
   };
 
-  /*
-   * --------------------------------------------------------------------------
-   * Variant sell Price
-   * --------------------------------------------------------------------------
-   */
+  /* ------------------------------------------------------------------------
+     Variant Sell Price
+     ------------------------------------------------------------------------ */
   const getVariantPrice = (variantId: number) => {
     return (
       variantPrices.find((item) => item.variantId === variantId)?.price || ""
     );
   };
 
-  /*
-   * --------------------------------------------------------------------------
-   * Variant Profit
-   * --------------------------------------------------------------------------
-   */
+  /* ------------------------------------------------------------------------
+     Variant Profit
+     ------------------------------------------------------------------------ */
   const getVariantProfit = (variantId: number) => {
     const cost = getVariantTotalCost(variantId);
     const price = Number(getVariantPrice(variantId));
@@ -603,80 +534,54 @@ const CreateMenuVariant = () => {
     return price - cost;
   };
 
-  /*
-   * --------------------------------------------------------------------------
-   * Submit
-   * --------------------------------------------------------------------------
-   */
+  /* ------------------------------------------------------------------------
+     Submit
+     ------------------------------------------------------------------------ */
   const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
 
-    /*
-     * Category validation
-     */
+    clearStatus();
+
     if (!categoryId) {
-      Swal.fire({
-        icon: "warning",
-        title: "Category Required",
-        text: "Please choose a category.",
-        confirmButtonColor: "#7d1119",
-      });
+      showStatus(
+        "warning",
+        "Category Required",
+        "Please choose a category.",
+      );
+
       return;
     }
 
-    /*
-     * Menu item validation
-     */
     if (!menuItemId) {
-      Swal.fire({
-        icon: "warning",
-        title: "Menu Item Required",
-        text: "Please choose a menu item.",
-        confirmButtonColor: "#7d1119",
-      });
+      showStatus(
+        "warning",
+        "Menu Item Required",
+        "Please choose a menu item.",
+      );
+
       return;
     }
 
-    /*
-     * Variant validation
-     */
     if (selectedVariantIds.length === 0) {
-      Swal.fire({
-        icon: "warning",
-        title: "Variant Required",
-        text: "Please select at least one variant.",
-        confirmButtonColor: "#7d1119",
-      });
+      showStatus(
+        "warning",
+        "Variant Required",
+        "Please select at least one variant.",
+      );
+
       return;
     }
 
-    /*
-     * ------------------------------------------------------------------------
-     * Ingredient validation
-     * ------------------------------------------------------------------------
-     *
-     * Ingredients are no longer selected manually.
-     *
-     * They are automatically loaded from the submenu.
-     */
     if (ingredientList.length === 0) {
-      Swal.fire({
-        icon: "warning",
-        title: "No Ingredients Found",
-        text: "No ingredients are allocated to this submenu.",
-        confirmButtonColor: "#7d1119",
-      });
+      showStatus(
+        "warning",
+        "No Ingredients Found",
+        "No ingredients are allocated to this submenu.",
+      );
+
       return;
     }
 
-    /*
-     * ------------------------------------------------------------------------
-     * Validate Quantities
-     * ------------------------------------------------------------------------
-     *
-     * Every allocated ingredient must have a quantity
-     * for every selected variant.
-     */
     for (const ingredient of ingredientList) {
       for (const variantId of selectedVariantIds) {
         const quantity = getIngredientQuantity(ingredient.id, variantId);
@@ -684,39 +589,38 @@ const CreateMenuVariant = () => {
         if (!quantity || Number(quantity) <= 0) {
           const variant = variants.find((item) => item.id === variantId);
 
-          Swal.fire({
-            icon: "warning",
-            title: "Quantity Required",
-            text: `Please enter a valid quantity for ${ingredient.ingredient_name} under variant ${
-              variant?.variant_name || variantId
-            }.`,
-            confirmButtonColor: "#7d1119",
-          });
+          const variantName =
+            variantId === NO_VARIANT_ID
+              ? "No Variant"
+              : variant?.variant_name || variantId;
+
+          showStatus(
+            "warning",
+            "Quantity Required",
+            `Please enter a valid quantity for ${ingredient.ingredient_name} under variant ${variantName}.`,
+          );
 
           return;
         }
       }
     }
 
-    /*
-     * ------------------------------------------------------------------------
-     * Validate Prices
-     * ------------------------------------------------------------------------
-     */
     for (const variantId of selectedVariantIds) {
       const price = getVariantPrice(variantId);
 
       if (!price || Number(price) <= 0) {
         const variant = variants.find((item) => item.id === variantId);
 
-        Swal.fire({
-          icon: "warning",
-          title: "Sell Price Required",
-          text: `Please enter a valid sell price for ${
-            variant?.variant_name || "variant"
-          }.`,
-          confirmButtonColor: "#7d1119",
-        });
+        const variantName =
+          variantId === NO_VARIANT_ID
+            ? "No Variant"
+            : variant?.variant_name || "variant";
+
+        showStatus(
+          "warning",
+          "Sell Price Required",
+          `Please enter a valid sell price for ${variantName}.`,
+        );
 
         return;
       }
@@ -725,20 +629,16 @@ const CreateMenuVariant = () => {
     try {
       setSubmitting(true);
 
-      /*
-       * ----------------------------------------------------------------------
-       * Prepare Variant Data
-       * ----------------------------------------------------------------------
-       *
-       * Every variant receives ALL allocated ingredients.
-       */
       const variantData = selectedVariantIds.map((variantId) => {
         const variant = variants.find((item) => item.id === variantId);
 
         return {
-          variant_id: variantId,
+          variant_id: variantId === NO_VARIANT_ID ? null : variantId,
 
-          variant_name: variant?.variant_name || "",
+          variant_name:
+            variantId === NO_VARIANT_ID
+              ? "No Variant"
+              : variant?.variant_name || "",
 
           buy_cost: Number(getVariantTotalCost(variantId).toFixed(2)),
 
@@ -746,9 +646,6 @@ const CreateMenuVariant = () => {
 
           profit: Number(getVariantProfit(variantId).toFixed(2)),
 
-          /*
-           * ALL allocated ingredients.
-           */
           ingredients: ingredientList.map((ingredient) => {
             const quantity = Number(
               getIngredientQuantity(ingredient.id, variantId),
@@ -763,51 +660,29 @@ const CreateMenuVariant = () => {
 
             return {
               ingredient_id: ingredient.id,
-
               ingredient_name: ingredient.ingredient_name,
-
               unit_id: ingredient.unit_id || null,
-
               unit_name: ingredient.unit_name || "",
-
               quantity,
-
               cost_per_unit: Number(ingredient.cost_per_unit || 0),
-
               cost,
             };
           }),
         };
       });
 
-      /*
-       * ----------------------------------------------------------------------
-       * Combined Total Cost
-       * ----------------------------------------------------------------------
-       */
-      const totalCost = selectedVariantIds.reduce(
-        (total, variantId) => total + getVariantTotalCost(variantId),
-        0,
-      );
-
-      /*
-       * ----------------------------------------------------------------------
-       * API Request
-       * ----------------------------------------------------------------------
-       */
       const response = await fetch(`${API_BASE_URL}/api/menu-varient`, {
         method: "POST",
         credentials: "include",
         headers: {
           "Content-Type": "application/json",
         },
-
         body: JSON.stringify(
           variantData.map((item) => ({
             menu_subcategory_id: Number(menuItemId),
             variant_id: item.variant_id,
             price: item.sell_price,
-            profit: item.profit, // Pass the calculated profit value
+            profit: item.profit,
             ingredients: item.ingredients.map((ing) => ({
               ingredient_id: ing.ingredient_id,
               quantity: ing.quantity,
@@ -822,21 +697,12 @@ const CreateMenuVariant = () => {
         throw new Error(data.message || "Failed to create menu variant.");
       }
 
-      /*
-       * Success message
-       */
-      Swal.fire({
-        icon: "success",
-        title: "Created Successfully",
-        text: "Menu variant has been created successfully.",
-        confirmButtonColor: "#7d1119",
-      });
+      showStatus(
+        "success",
+        "Created Successfully",
+        "Menu variant has been created successfully.",
+      );
 
-      /*
-       * ----------------------------------------------------------------------
-       * Reset Form
-       * ----------------------------------------------------------------------
-       */
       setCategoryId("");
       setMenuItemId("");
       setSelectedVariantIds([]);
@@ -849,33 +715,55 @@ const CreateMenuVariant = () => {
     } catch (error) {
       console.error("Error creating menu variant:", error);
 
-      Swal.fire({
-        icon: "error",
-        title: "Creation Failed",
-        text: error instanceof Error ? error.message : "Something went wrong.",
-        confirmButtonColor: "#7d1119",
-      });
+      showStatus(
+        "error",
+        "Creation Failed",
+        error instanceof Error ? error.message : "Something went wrong.",
+      );
     } finally {
       setSubmitting(false);
     }
   };
 
-  /*
-   * --------------------------------------------------------------------------
-   * Selected Variant Objects
-   * --------------------------------------------------------------------------
-   */
+  /* ------------------------------------------------------------------------
+     Selected Variant Objects
+     ------------------------------------------------------------------------ */
   const selectedVariantObjects = useMemo(() => {
+    if (selectedVariantIds.includes(NO_VARIANT_ID)) {
+      return [
+        {
+          id: NO_VARIANT_ID,
+          variant_name: "No Variant",
+        },
+      ];
+    }
+
     return variants.filter((variant) =>
       selectedVariantIds.includes(variant.id),
     );
   }, [variants, selectedVariantIds]);
 
+  /* ------------------------------------------------------------------------
+     Status styles
+     ------------------------------------------------------------------------ */
+  const statusStyles: Record<StatusMessage["type"], string> = {
+    success:
+      "border-green-300 bg-green-50 text-green-800 dark:border-green-800 dark:bg-green-950 dark:text-green-200",
+    error:
+      "border-red-300 bg-red-50 text-red-800 dark:border-red-800 dark:bg-red-950 dark:text-red-200",
+    warning:
+      "border-yellow-300 bg-yellow-50 text-yellow-800 dark:border-yellow-800 dark:bg-yellow-950 dark:text-yellow-200",
+  };
+
+  const StatusIcon = ({ type }: { type: StatusMessage["type"] }) => {
+    if (type === "success") return <CheckCircle2 className="h-4 w-4" />;
+    return <AlertCircle className="h-4 w-4" />;
+  };
+
   return (
     <div className="min-h-screen bg-[var(--surface-dark)] p-4 md:p-6">
       <div className="mx-auto max-w-[1500px]">
         {/* Page Header */}
-
         <div className="mb-6">
           <h1 className="text-2xl font-bold text-[var(--text-primary)]">
             Create Menu Variant
@@ -887,15 +775,37 @@ const CreateMenuVariant = () => {
           </p>
         </div>
 
-        {/* Form Card */}
+        {/* Inline Status Message */}
+        {statusMessage && (
+          <div
+            className={`mb-4 flex items-start gap-2 rounded-lg border px-3 py-2 text-xs ${statusStyles[statusMessage.type]}`}
+          >
+            <span className="mt-0.5 shrink-0">
+              <StatusIcon type={statusMessage.type} />
+            </span>
 
+            <div className="flex-1">
+              <p className="font-semibold">{statusMessage.title}</p>
+              <p className="mt-0.5">{statusMessage.text}</p>
+            </div>
+
+            <button
+              type="button"
+              onClick={clearStatus}
+              className="shrink-0 rounded p-0.5 transition hover:bg-black/10"
+              title="Dismiss"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        )}
+
+        {/* Form Card */}
         <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-5 shadow-sm">
           <form onSubmit={handleSubmit}>
             {/* Category + Menu Item */}
-
             <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
               {/* Category */}
-
               <div>
                 <label
                   htmlFor="category"
@@ -927,7 +837,6 @@ const CreateMenuVariant = () => {
               </div>
 
               {/* Menu Item */}
-
               <div>
                 <label
                   htmlFor="menuItem"
@@ -962,7 +871,6 @@ const CreateMenuVariant = () => {
             </div>
 
             {/* Allocated Ingredient Loading Status */}
-
             {menuItemId && loadingIngredients && (
               <div className="mt-4 flex items-center gap-2 text-sm text-[var(--text-secondary)]">
                 <Loader2 className="h-4 w-4 animate-spin" />
@@ -970,12 +878,15 @@ const CreateMenuVariant = () => {
               </div>
             )}
 
-            {/* Multiple Variants */}
-
+            {/* =========================================================
+                Multiple Variants
+               ========================================================= */}
             <div className="mt-5">
               <label className="mb-2 block text-sm font-medium text-[var(--text-primary)]">
                 Variants
-                <span className="ml-1 text-[var(--danger)]">*</span>
+                <span className="ml-1 text-xs text-[var(--text-muted)]">
+                  (optional)
+                </span>
               </label>
 
               <button
@@ -991,9 +902,11 @@ const CreateMenuVariant = () => {
                       ? !menuItemId
                         ? "Choose menu item first"
                         : "Choose variants"
-                      : `${selectedVariantIds.length} variant${
-                          selectedVariantIds.length > 1 ? "s" : ""
-                        } selected`}
+                      : selectedVariantIds.includes(NO_VARIANT_ID)
+                        ? "No Variant selected"
+                        : `${selectedVariantIds.length} variant${
+                            selectedVariantIds.length > 1 ? "s" : ""
+                          } selected`}
                 </span>
 
                 <ChevronDown
@@ -1004,16 +917,15 @@ const CreateMenuVariant = () => {
               </button>
 
               {showVariants && (
-                <div className="mt-2 max-h-[220px] overflow-y-auto rounded-lg border border-[var(--border)] bg-[var(--surface)]">
-                  {/* Select All */}
-
+                <div className="mt-2 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-3">
                   {variants.length > 0 && (
-                    <label className="flex cursor-pointer items-center gap-3 border-b border-[var(--border)] bg-[var(--surface-grey)] px-4 py-3">
+                    <label className="mb-3 flex cursor-pointer items-center gap-2 rounded-md border border-[var(--border)] bg-[var(--surface-grey)] px-3 py-2">
                       <input
                         type="checkbox"
                         checked={
                           selectedVariantIds.length === variants.length &&
-                          variants.length > 0
+                          variants.length > 0 &&
+                          !selectedVariantIds.includes(NO_VARIANT_ID)
                         }
                         onChange={handleSelectAllVariants}
                         disabled={submitting}
@@ -1026,48 +938,75 @@ const CreateMenuVariant = () => {
                     </label>
                   )}
 
-                  {variants.length === 0 ? (
-                    <div className="px-4 py-6 text-center text-sm text-[var(--text-muted)]">
-                      No variants found for this menu item.
-                    </div>
-                  ) : (
-                    variants.map((variant) => {
+                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">
+                    {(() => {
+                      const selected = selectedVariantIds.includes(
+                        NO_VARIANT_ID,
+                      );
+
+                      return (
+                        <button
+                          key="no-variant"
+                          type="button"
+                          onClick={() => handleVariantChange(NO_VARIANT_ID)}
+                          disabled={submitting}
+                          className={`flex items-center justify-between gap-2 rounded-lg border px-3 py-2 text-left text-sm transition ${
+                            selected
+                              ? "border-[var(--primary)] bg-[var(--primary)] text-white"
+                              : "border-[var(--border)] bg-[var(--surface)] text-[var(--text-primary)] hover:bg-[var(--surface-grey)]"
+                          } disabled:cursor-not-allowed disabled:opacity-60`}
+                        >
+                          <span className="truncate font-medium">
+                            No Variant
+                          </span>
+
+                          {selected && (
+                            <Check className="h-4 w-4 shrink-0" />
+                          )}
+                        </button>
+                      );
+                    })()}
+
+                    {variants.map((variant) => {
                       const selected = selectedVariantIds.includes(variant.id);
 
                       return (
-                        <label
+                        <button
                           key={variant.id}
-                          className="flex cursor-pointer items-center gap-3 border-b border-[var(--border)] px-4 py-2.5 last:border-b-0 hover:bg-[var(--surface-grey)]"
+                          type="button"
+                          onClick={() => handleVariantChange(variant.id)}
+                          disabled={submitting}
+                          className={`flex items-center justify-between gap-2 rounded-lg border px-3 py-2 text-left text-sm transition ${
+                            selected
+                              ? "border-[var(--primary)] bg-[var(--primary)] text-white"
+                              : "border-[var(--border)] bg-[var(--surface)] text-[var(--text-primary)] hover:bg-[var(--surface-grey)]"
+                          } disabled:cursor-not-allowed disabled:opacity-60`}
                         >
-                          <input
-                            type="checkbox"
-                            checked={selected}
-                            onChange={() => handleVariantChange(variant.id)}
-                            disabled={submitting}
-                            className="h-4 w-4 accent-[var(--primary)]"
-                          />
-
-                          <span className="text-sm text-[var(--text-primary)]">
+                          <span className="truncate font-medium">
                             {variant.variant_name}
                           </span>
-                        </label>
+
+                          {selected && (
+                            <Check className="h-4 w-4 shrink-0" />
+                          )}
+                        </button>
                       );
-                    })
+                    })}
+                  </div>
+
+                  {variants.length === 0 && (
+                    <p className="mt-2 text-center text-xs text-[var(--text-muted)]">
+                      No variants found for this menu item. You can still
+                      create a "No Variant" entry.
+                    </p>
                   )}
                 </div>
               )}
             </div>
 
-            {/* ================================================================
+            {/* =========================================================
                 Excel-Style Pricing Table
-
-                IMPORTANT:
-                No ingredient dropdown exists anymore.
-
-                ingredientList already contains ALL ingredients allocated
-                to the selected submenu.
-               ================================================================ */}
-
+               ========================================================= */}
             {ingredientList.length > 0 && selectedVariantObjects.length > 0 && (
               <div className="mt-6 overflow-hidden rounded-lg border border-[var(--border)]">
                 <div className="bg-[var(--surface-grey)] px-4 py-3">
@@ -1083,26 +1022,20 @@ const CreateMenuVariant = () => {
 
                 <div className="overflow-x-auto">
                   <table className="min-w-max w-full border-collapse text-sm">
-                    {/* Header */}
-
                     <thead>
                       <tr className="border-b border-[var(--border)] bg-[var(--surface-grey)]">
-                        {/* Ingredient */}
-
                         <th
                           rowSpan={2}
-                          className="sticky left-0 z-20 min-w-[160px] border-r border-[var(--border)] px-4 py-3 text-left font-semibold text-[var(--text-primary)]"
+                          className="sticky left-0 z-20 w-[180px] border-r border-[var(--border)] px-3 py-2 text-left font-semibold text-[var(--text-primary)]"
                         >
                           Ingredient
                         </th>
-
-                        {/* Variants */}
 
                         {selectedVariantObjects.map((variant) => (
                           <th
                             key={variant.id}
                             colSpan={2}
-                            className="border-r border-[var(--border)] px-4 py-3 text-center font-semibold text-[var(--text-primary)]"
+                            className="border-r border-[var(--border)] px-3 py-2 text-center font-semibold text-[var(--text-primary)]"
                           >
                             {variant.variant_name}
                           </th>
@@ -1112,11 +1045,11 @@ const CreateMenuVariant = () => {
                       <tr className="border-b border-[var(--border)] bg-[var(--surface-grey)]">
                         {selectedVariantObjects.map((variant) => (
                           <React.Fragment key={variant.id}>
-                            <th className="min-w-[110px] border-r border-[var(--border)] px-3 py-2 text-center text-xs font-medium text-[var(--text-secondary)]">
+                            <th className="w-[90px] border-r border-[var(--border)] px-2 py-2 text-center text-xs font-medium text-[var(--text-secondary)]">
                               Qty
                             </th>
 
-                            <th className="min-w-[120px] border-r border-[var(--border)] px-3 py-2 text-center text-xs font-medium text-[var(--text-secondary)]">
+                            <th className="w-[100px] border-r border-[var(--border)] px-2 py-2 text-center text-xs font-medium text-[var(--text-secondary)]">
                               Cost
                             </th>
                           </React.Fragment>
@@ -1124,21 +1057,13 @@ const CreateMenuVariant = () => {
                       </tr>
                     </thead>
 
-                    {/* Body */}
-
                     <tbody>
-                      {/* =====================================================
-                            ALL ALLOCATED INGREDIENTS
-                           ===================================================== */}
-
                       {ingredientList.map((ingredient) => (
                         <tr
                           key={ingredient.id}
                           className="border-b border-[var(--border)] last:border-b-0"
                         >
-                          {/* Ingredient Name */}
-
-                          <td className="sticky left-0 z-10 border-r border-[var(--border)] bg-[var(--surface)] px-4 py-3">
+                          <td className="sticky left-0 z-10 border-r border-[var(--border)] bg-[var(--surface)] px-3 py-2">
                             <div>
                               <p className="font-medium text-[var(--text-primary)]">
                                 {ingredient.ingredient_name}
@@ -1150,8 +1075,6 @@ const CreateMenuVariant = () => {
                               </p>
                             </div>
                           </td>
-
-                          {/* Variant Columns */}
 
                           {selectedVariantObjects.map((variant) => {
                             const quantity = getIngredientQuantity(
@@ -1166,9 +1089,7 @@ const CreateMenuVariant = () => {
 
                             return (
                               <React.Fragment key={variant.id}>
-                                {/* Quantity */}
-
-                                <td className="border-r border-[var(--border)] px-3 py-3">
+                                <td className="border-r border-[var(--border)] px-2 py-2">
                                   <input
                                     type="text"
                                     inputMode="decimal"
@@ -1182,13 +1103,11 @@ const CreateMenuVariant = () => {
                                     }
                                     placeholder="0"
                                     disabled={submitting}
-                                    className="w-24 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm text-[var(--text-primary)] outline-none focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary)]/20"
+                                    className="w-full rounded-md border border-[var(--border)] bg-[var(--surface)] px-2 py-1.5 text-center text-sm text-[var(--text-primary)] outline-none focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary)]/20"
                                   />
                                 </td>
 
-                                {/* Cost */}
-
-                                <td className="border-r border-[var(--border)] px-3 py-3 text-right">
+                                <td className="border-r border-[var(--border)] px-2 py-2 text-right">
                                   <span className="font-medium text-[var(--text-primary)]">
                                     ৳ {cost.toFixed(2)}
                                   </span>
@@ -1200,37 +1119,35 @@ const CreateMenuVariant = () => {
                       ))}
 
                       {/* Buy Cost */}
-
                       <tr className="bg-[var(--surface-grey)]">
-                        <td className="sticky left-0 z-10 border-r border-[var(--border)] bg-[var(--surface-grey)] px-4 py-3 font-semibold text-[var(--text-primary)]">
+                        <td className="sticky left-0 z-10 border-r border-[var(--border)] bg-[var(--surface-grey)] px-3 py-2 font-semibold text-[var(--text-primary)]">
                           Buy Cost
                         </td>
 
                         {selectedVariantObjects.map((variant) => (
                           <React.Fragment key={variant.id}>
-                            <td className="border-r border-[var(--border)] px-3 py-3"></td>
+                            <td className="border-r border-[var(--border)] px-2 py-2"></td>
 
-                            <td className="border-r border-[var(--border)] px-3 py-3 text-right font-semibold text-[var(--text-primary)]">
+                            <td className="border-r border-[var(--border)] px-2 py-2 text-right font-semibold text-[var(--text-primary)]">
                               ৳ {getVariantTotalCost(variant.id).toFixed(2)}
                             </td>
                           </React.Fragment>
                         ))}
                       </tr>
 
-                      {/* sell Price */}
-
+                      {/* Sell Price */}
                       <tr className="bg-[var(--surface-grey)]">
-                        <td className="sticky left-0 z-10 border-r border-[var(--border)] bg-[var(--surface-grey)] px-4 py-3 font-semibold text-[var(--text-primary)]">
+                        <td className="sticky left-0 z-10 border-r border-[var(--border)] bg-[var(--surface-grey)] px-3 py-2 font-semibold text-[var(--text-primary)]">
                           Sell Price
                         </td>
 
                         {selectedVariantObjects.map((variant) => (
                           <React.Fragment key={variant.id}>
-                            <td className="border-r border-[var(--border)] px-3 py-3"></td>
+                            <td className="border-r border-[var(--border)] px-2 py-2"></td>
 
-                            <td className="border-r border-[var(--border)] px-3 py-3">
+                            <td className="border-r border-[var(--border)] px-2 py-2">
                               <div className="relative">
-                                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-[var(--text-secondary)]">
+                                <span className="absolute left-2 top-1/2 -translate-y-1/2 text-xs text-[var(--text-secondary)]">
                                   ৳
                                 </span>
 
@@ -1246,7 +1163,7 @@ const CreateMenuVariant = () => {
                                   }
                                   placeholder="0"
                                   disabled={submitting}
-                                  className="w-28 rounded-lg border border-[var(--border)] bg-[var(--surface)] py-2 pl-7 pr-2 text-sm text-[var(--text-primary)] outline-none focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary)]/20"
+                                  className="w-full rounded-md border border-[var(--border)] bg-[var(--surface)] py-1.5 pl-6 pr-2 text-center text-sm text-[var(--text-primary)] outline-none focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary)]/20"
                                 />
                               </div>
                             </td>
@@ -1255,17 +1172,16 @@ const CreateMenuVariant = () => {
                       </tr>
 
                       {/* Profit */}
-
                       <tr className="bg-[var(--surface-grey)]">
-                        <td className="sticky left-0 z-10 border-r border-[var(--border)] bg-[var(--surface-grey)] px-4 py-3 font-semibold text-[var(--text-primary)]">
+                        <td className="sticky left-0 z-10 border-r border-[var(--border)] bg-[var(--surface-grey)] px-3 py-2 font-semibold text-[var(--text-primary)]">
                           Profit
                         </td>
 
                         {selectedVariantObjects.map((variant) => (
                           <React.Fragment key={variant.id}>
-                            <td className="border-r border-[var(--border)] px-3 py-3"></td>
+                            <td className="border-r border-[var(--border)] px-2 py-2"></td>
 
-                            <td className="border-r border-[var(--border)] px-3 py-3 text-right font-semibold text-[var(--text-primary)]">
+                            <td className="border-r border-[var(--border)] px-2 py-2 text-right font-semibold text-[var(--text-primary)]">
                               ৳ {getVariantProfit(variant.id).toFixed(2)}
                             </td>
                           </React.Fragment>
@@ -1278,7 +1194,6 @@ const CreateMenuVariant = () => {
             )}
 
             {/* Submit Button */}
-
             <div className="mt-6 flex justify-end">
               <button
                 type="submit"

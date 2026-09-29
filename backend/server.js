@@ -10,10 +10,10 @@ import db from "./db.js";
 // Import routes
 import loginRoutes from "./routes/login.js";
 import authRoutes from "./routes/auth.js";
-import registrationRoutes from "./routes/registration.js";
+import registrationRouter from "./routes/registration.js";
 import sidebarRoutes from "./routes/sidebar.js";
 import restaurantCategoryRoutes from "./routes/restaurantCategory.js";
-import employeeRoutes from "./routes/create_employee.js";
+import employeeRouter from "./routes/create_employee.js";
 import branchRoutes from "./routes/branch_list.js";
 import variantRoutes from "./routes/variant.js";
 import menuCategoryRoutes from "./routes/create_menucategory.js";
@@ -54,13 +54,13 @@ app.use("/api/auth", loginRoutes);
 
 app.use("/api/auth", authRoutes);
 
-app.use("/api/registration", registrationRoutes);
+app.use("/api/registration", registrationRouter);
 
 app.use("/api/sidebar", sidebarRoutes);
 
 app.use("/api/restaurant-category", restaurantCategoryRoutes);
 
-app.use("/api/employees", employeeRoutes);
+app.use("/api/employees", employeeRouter);
 
 app.use("/api/branches", branchRoutes);
 

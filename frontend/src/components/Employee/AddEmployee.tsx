@@ -51,10 +51,6 @@ const CustomDatePicker = ({ value, onChange, placeholder = "Select date" }) => {
     (_, index) => 1950 + index,
   );
 
-  /* =========================================================
-     CLOSE WHEN CLICKING OUTSIDE
-     ========================================================= */
-
   useEffect(() => {
     const handleOutsideClick = (event) => {
       if (calendarRef.current && !calendarRef.current.contains(event.target)) {
@@ -71,10 +67,6 @@ const CustomDatePicker = ({ value, onChange, placeholder = "Select date" }) => {
     };
   }, []);
 
-  /* =========================================================
-     ESCAPE KEY
-     ========================================================= */
-
   useEffect(() => {
     const handleEscape = (event) => {
       if (event.key === "Escape") {
@@ -90,10 +82,6 @@ const CustomDatePicker = ({ value, onChange, placeholder = "Select date" }) => {
       document.removeEventListener("keydown", handleEscape);
     };
   }, []);
-
-  /* =========================================================
-     CALENDAR DATA
-     ========================================================= */
 
   const year = viewDate.getFullYear();
   const month = viewDate.getMonth();
@@ -131,10 +119,6 @@ const CustomDatePicker = ({ value, onChange, placeholder = "Select date" }) => {
     });
   }
 
-  /* =========================================================
-     FORMAT DATE
-     ========================================================= */
-
   const formatDateValue = (date) => {
     const selectedYear = date.getFullYear();
     const selectedMonth = String(date.getMonth() + 1).padStart(2, "0");
@@ -159,10 +143,6 @@ const CustomDatePicker = ({ value, onChange, placeholder = "Select date" }) => {
     });
   };
 
-  /* =========================================================
-     SELECT DATE
-     ========================================================= */
-
   const handleDateSelect = (date) => {
     const formattedDate = formatDateValue(date);
 
@@ -175,10 +155,6 @@ const CustomDatePicker = ({ value, onChange, placeholder = "Select date" }) => {
     setShowYears(false);
   };
 
-  /* =========================================================
-     MONTH NAVIGATION
-     ========================================================= */
-
   const goToPreviousMonth = () => {
     setViewDate(new Date(year, month - 1, 1));
   };
@@ -189,29 +165,18 @@ const CustomDatePicker = ({ value, onChange, placeholder = "Select date" }) => {
 
   const changeMonth = (monthIndex) => {
     setViewDate(new Date(year, monthIndex, 1));
-
     setShowMonths(false);
   };
 
   const changeYear = (selectedYear) => {
     setViewDate(new Date(selectedYear, month, 1));
-
     setShowYears(false);
   };
 
-  /* =========================================================
-     CHECK SELECTED DATE
-     ========================================================= */
-
   const isSelectedDate = (date) => {
     if (!value) return false;
-
     return formatDateValue(date) === value;
   };
-
-  /* =========================================================
-     CHECK TODAY
-     ========================================================= */
 
   const isToday = (date) => {
     return (
@@ -246,11 +211,8 @@ const CustomDatePicker = ({ value, onChange, placeholder = "Select date" }) => {
           className="shrink-0 text-text-secondary"
         >
           <rect x="3" y="4" width="18" height="18" rx="2" />
-
           <line x1="16" y1="2" x2="16" y2="6" />
-
           <line x1="8" y1="2" x2="8" y2="6" />
-
           <line x1="3" y1="10" x2="21" y2="10" />
         </svg>
       </button>
@@ -447,10 +409,6 @@ const AddEmployee = () => {
   const [formData, setFormData] = useState({
     employee_id: "",
     first_name: "",
-    middle_name: "",
-    last_name: "",
-    preferred_name: "",
-    employee_email: "",
     personal_email: "",
     phone: "",
     date_of_birth: "",
@@ -465,11 +423,9 @@ const AddEmployee = () => {
     emergency_contact_relation: "",
     joining_date: "",
     confirmation_date: "",
-    leaving_date: "",
     employment_status: "active",
   });
-  const [isCheckingDuplicate, setIsCheckingDuplicate] = useState(false);
-  const [employeeIdDuplicate, setEmployeeIdDuplicate] = useState(false);
+
   const [photo, setPhoto] = useState(null);
   const [photoPreview, setPhotoPreview] = useState("");
   const [photoError, setPhotoError] = useState("");
@@ -483,14 +439,77 @@ const AddEmployee = () => {
   // Debounce timer for employee_id duplicate check
   const employeeIdDuplicateTimerRef = useRef(null);
 
-  // Abort controller to cancel in-flight duplicate checks
-  const duplicateAbortRef = useRef(null);
-
-  // Track the latest employee_id value without re-rendering
-  const latestEmployeeIdRef = useRef("");
-
   // Form ref so we can safely reset the form
   const formRef = useRef(null);
+
+  /* =========================================================
+     CLEANUP TIMER ON UNMOUNT
+     ========================================================= */
+
+  useEffect(() => {
+    return () => {
+      if (employeeIdDuplicateTimerRef.current) {
+        clearTimeout(employeeIdDuplicateTimerRef.current);
+      }
+    };
+  }, []);
+
+  /* =========================================================
+     SERVER-SIDE DUPLICATE CHECK
+     Mirrors the CompanyRegistration pattern exactly.
+     ========================================================= */
+
+  const checkDuplicateOnServer = async (value) => {
+  try {
+    console.log("Checking employee ID:", value);
+
+    const response = await fetch(
+      `${API_BASE_URL}/api/employees/check-employee-id`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        credentials: "include",
+        body: JSON.stringify({
+          employee_id: value.trim(),
+        }),
+      },
+    );
+
+    const data = await response.json();
+
+    console.log("Duplicate check response:", response.status, data);
+
+    if (!response.ok) {
+      setErrors((prev) => ({
+        ...prev,
+        employee_id:
+          data.message || "Unable to check Employee ID.",
+      }));
+      return;
+    }
+
+    if (data.exists) {
+      setErrors((prev) => ({
+        ...prev,
+        employee_id: "This Employee ID already exists.",
+      }));
+    } else {
+      setErrors((prev) => ({
+        ...prev,
+        employee_id: "",
+      }));
+    }
+  } catch (error) {
+    console.error("Failed to check duplicate employee ID:", error);
+
+    setErrors((prev) => ({
+      ...prev,
+      employee_id: "Unable to check Employee ID.",
+    }));
+  }
+};
 
   /* =========================================================
      HANDLE INPUT
@@ -513,64 +532,10 @@ const AddEmployee = () => {
   };
 
   /* =========================================================
-     CHECK DUPLICATE EMPLOYEE ID ON SERVER
-     ========================================================= */
-
-  const checkEmployeeIdDuplicate = async (employeeId: string) => {
-    const value = employeeId.trim();
-
-    if (!value) {
-      setEmployeeIdDuplicate(false);
-      return false;
-    }
-
-    setIsCheckingDuplicate(true);
-
-    try {
-      const response = await fetch(
-        `${API_BASE_URL}/api/employees/check-employee-id`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          credentials: "include",
-          body: JSON.stringify({
-            employee_id: value,
-
-            // IMPORTANT:
-            // Keep this if your page supports editing an employee.
-            // Replace `editingId` with your actual edit employee ID state.
-            ...(editingId ? { exclude_id: editingId } : {}),
-          }),
-        },
-      );
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.message || "Failed to check employee ID.");
-      }
-
-      setEmployeeIdDuplicate(data.exists === true);
-
-      return data.exists === true;
-    } catch (error) {
-      console.error("Employee ID duplicate check error:", error);
-
-      setEmployeeIdDuplicate(false);
-
-      return false;
-    } finally {
-      setIsCheckingDuplicate(false);
-    }
-  };
-
-  /* =========================================================
      HANDLE EMPLOYEE ID CHANGE (with debounced duplicate check)
      ========================================================= */
 
-  const handleEmployeeIdChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleEmployeeIdChange = (e) => {
     const value = e.target.value;
 
     setFormData((prev) => ({
@@ -578,67 +543,28 @@ const AddEmployee = () => {
       employee_id: value,
     }));
 
-    // Clear previous duplicate error while typing
-    if (employeeIdDuplicate) {
-      setEmployeeIdDuplicate(false);
+    // Clear previous error immediately while typing
+    setErrors((prev) => ({
+      ...prev,
+      employee_id: "",
+    }));
+
+    // Clear previous duplicate-check timer
+    if (employeeIdDuplicateTimerRef.current) {
+      clearTimeout(employeeIdDuplicateTimerRef.current);
     }
 
-    if (errors.employee_id) {
-      setErrors((prev) => ({
-        ...prev,
-        employee_id: "",
-      }));
-    }
-  };
+    const trimmed = value.trim();
 
-  /* =========================================================
-     HANDLE EMPLOYEE ID BLUR (immediate check)
-     ========================================================= */
-
-  const handleEmployeeIdBlur = async () => {
-    const value = formData.employee_id.trim();
-
-    if (!value) {
-      setEmployeeIdDuplicate(false);
-
-      setErrors((prev) => ({
-        ...prev,
-        employee_id: "Employee ID is required.",
-      }));
-
+    if (!trimmed) {
       return;
     }
 
-    const exists = await checkEmployeeIdDuplicate(value);
-
-    if (exists) {
-      setErrors((prev) => ({
-        ...prev,
-        employee_id: "Employee ID already exists.",
-      }));
-    } else {
-      setErrors((prev) => ({
-        ...prev,
-        employee_id: "",
-      }));
-    }
+    // Start a 2-second debounce timer
+    employeeIdDuplicateTimerRef.current = setTimeout(() => {
+      checkDuplicateOnServer(trimmed);
+    }, 2000);
   };
-
-  /* =========================================================
-     CLEANUP TIMERS ON UNMOUNT
-     ========================================================= */
-
-  useEffect(() => {
-    return () => {
-      if (employeeIdDuplicateTimerRef.current) {
-        clearTimeout(employeeIdDuplicateTimerRef.current);
-      }
-
-      if (duplicateAbortRef.current) {
-        duplicateAbortRef.current.abort();
-      }
-    };
-  }, []);
 
   /* =========================================================
      HANDLE NAME CHANGE (alphabets and spaces only)
@@ -832,13 +758,7 @@ const AddEmployee = () => {
     }
 
     if (!formData.first_name.trim()) {
-      newErrors.first_name = "First name is required.";
-    }
-
-    if (!formData.employee_email.trim()) {
-      newErrors.employee_email = "Employee email is required.";
-    } else if (!isValidEmail(formData.employee_email)) {
-      newErrors.employee_email = "Enter a valid email address.";
+      newErrors.first_name = "Full name is required.";
     }
 
     if (!formData.personal_email.trim()) {
@@ -922,20 +842,6 @@ const AddEmployee = () => {
     try {
       setIsSubmitting(true);
 
-      // Final duplicate check before submitting
-      const duplicateExists = await checkEmployeeIdDuplicate(
-        formData.employee_id.trim(),
-      );
-
-      if (duplicateExists) {
-        setErrors((prev) => ({
-          ...prev,
-          employee_id: "This Employee ID already exists.",
-        }));
-
-        return;
-      }
-
       const data = new FormData();
 
       Object.entries(formData).forEach(([key, value]) => {
@@ -989,27 +895,16 @@ const AddEmployee = () => {
         text: result.message || "Employee created successfully.",
       });
 
-      // Clear any pending duplicate timer / in-flight request
+      // Clear any pending duplicate timer
       if (employeeIdDuplicateTimerRef.current) {
         clearTimeout(employeeIdDuplicateTimerRef.current);
         employeeIdDuplicateTimerRef.current = null;
       }
 
-      if (duplicateAbortRef.current) {
-        duplicateAbortRef.current.abort();
-        duplicateAbortRef.current = null;
-      }
-
-      latestEmployeeIdRef.current = "";
-
       // Reset form state
       setFormData({
         employee_id: "",
         first_name: "",
-        middle_name: "",
-        last_name: "",
-        preferred_name: "",
-        employee_email: "",
         personal_email: "",
         phone: "",
         date_of_birth: "",
@@ -1024,7 +919,6 @@ const AddEmployee = () => {
         emergency_contact_relation: "",
         joining_date: "",
         confirmation_date: "",
-        leaving_date: "",
         employment_status: "active",
       });
 
@@ -1141,50 +1035,21 @@ const AddEmployee = () => {
                   Employee ID <span className="text-danger">*</span>
                 </label>
 
-                <div className="relative">
-                  <input
-                    type="text"
-                    name="employee_id"
-                    value={formData.employee_id}
-                    onChange={handleEmployeeIdChange}
-                    onBlur={handleEmployeeIdBlur}
-                    placeholder="Enter employee ID"
-                    className={`${inputStyle} ${
-                      isCheckingDuplicate ? "pr-9" : ""
-                    }`}
-                  />
-
-                  {isCheckingDuplicate && (
-                    <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2">
-                      <svg
-                        className="h-4 w-4 animate-spin text-text-muted"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                      >
-                        <circle
-                          cx="12"
-                          cy="12"
-                          r="10"
-                          stroke="currentColor"
-                          strokeWidth="4"
-                          opacity="0.25"
-                        />
-                        <path
-                          d="M22 12a10 10 0 0 1-10 10"
-                          stroke="currentColor"
-                          strokeWidth="4"
-                        />
-                      </svg>
-                    </span>
-                  )}
-                </div>
+                <input
+                  type="text"
+                  name="employee_id"
+                  value={formData.employee_id}
+                  onChange={handleEmployeeIdChange}
+                  placeholder="Enter employee ID"
+                  className={inputStyle}
+                />
 
                 {errors.employee_id && (
                   <p className={errorStyle}>{errors.employee_id}</p>
                 )}
               </div>
 
-              {/* First Name */}
+              {/* Full Name */}
               <div>
                 <label className={labelStyle}>
                   First Name <span className="text-danger">*</span>
@@ -1192,7 +1057,7 @@ const AddEmployee = () => {
 
                 <input
                   type="text"
-                  name="first_name"
+                  name="full_name"
                   value={formData.first_name}
                   onChange={handleNameChange}
                   placeholder="Enter first name"
@@ -1202,63 +1067,6 @@ const AddEmployee = () => {
                 {errors.first_name && (
                   <p className={errorStyle}>{errors.first_name}</p>
                 )}
-              </div>
-
-              {/* Middle Name */}
-              <div>
-                <label className={labelStyle}>
-                  Middle Name{" "}
-                  <span className="font-normal text-text-muted">
-                    (Optional)
-                  </span>
-                </label>
-
-                <input
-                  type="text"
-                  name="middle_name"
-                  value={formData.middle_name}
-                  onChange={handleNameChange}
-                  placeholder="Enter middle name"
-                  className={inputStyle}
-                />
-              </div>
-
-              {/* Last Name */}
-              <div>
-                <label className={labelStyle}>
-                  Last Name{" "}
-                  <span className="font-normal text-text-muted">
-                    (Optional)
-                  </span>
-                </label>
-
-                <input
-                  type="text"
-                  name="last_name"
-                  value={formData.last_name}
-                  onChange={handleNameChange}
-                  placeholder="Enter last name"
-                  className={inputStyle}
-                />
-              </div>
-
-              {/* Preferred Name */}
-              <div>
-                <label className={labelStyle}>
-                  Preferred Name{" "}
-                  <span className="font-normal text-text-muted">
-                    (Optional)
-                  </span>
-                </label>
-
-                <input
-                  type="text"
-                  name="preferred_name"
-                  value={formData.preferred_name}
-                  onChange={handleNameChange}
-                  placeholder="Enter preferred name"
-                  className={inputStyle}
-                />
               </div>
 
               {/* Gender */}
@@ -1353,26 +1161,6 @@ const AddEmployee = () => {
             </div>
 
             <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
-              {/* Employee Email */}
-              <div>
-                <label className={labelStyle}>
-                  Employee Email <span className="text-danger">*</span>
-                </label>
-
-                <input
-                  type="email"
-                  name="employee_email"
-                  value={formData.employee_email}
-                  onChange={handleChange}
-                  placeholder="employee@company.com"
-                  className={inputStyle}
-                />
-
-                {errors.employee_email && (
-                  <p className={errorStyle}>{errors.employee_email}</p>
-                )}
-              </div>
-
               {/* Personal Email */}
               <div>
                 <label className={labelStyle}>
@@ -1584,9 +1372,6 @@ const AddEmployee = () => {
               {/* Confirmation Date */}
               <DateField label="Confirmation Date" name="confirmation_date" />
 
-              {/* Leaving Date */}
-              <DateField label="Leaving Date" name="leaving_date" />
-
               {/* Employment Status */}
               <div className="lg:col-span-3">
                 <label className={labelStyle}>Employment Status</label>
@@ -1731,14 +1516,10 @@ const AddEmployee = () => {
 
             <button
               type="submit"
-              disabled={isSubmitting || isCheckingDuplicate}
+              disabled={isSubmitting}
               className="rounded-lg bg-primary px-7 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {isSubmitting
-                ? "Creating Employee..."
-                : isCheckingDuplicate
-                  ? "Checking..."
-                  : "Create Employee"}
+              {isSubmitting ? "Creating Employee..." : "Create Employee"}
             </button>
           </div>
         </form>

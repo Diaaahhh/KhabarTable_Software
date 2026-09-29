@@ -7,7 +7,6 @@ import {
   useRef,
   useState,
   type ChangeEvent,
-  type FocusEvent,
   type FormEvent,
 } from "react";
 
@@ -26,20 +25,46 @@ import {
   ChevronDown,
   Check,
   X,
+  AlertCircle,
+  CheckCircle2,
 } from "lucide-react";
+
 import { API_BASE_URL } from "../../constants/api";
+
+interface DesignationOption {
+  id: number;
+  code: string;
+  name: string;
+}
+
+interface StatusMessage {
+  type: "success" | "error" | "warning";
+  title: string;
+  text: string;
+}
 
 export default function CompanyRegistration() {
   const searchParams = useSearchParams();
   const companyId = searchParams.get("id");
   const isEditMode = Boolean(companyId);
 
-  const[successMessage, setSuccessMessage]= useState("");
   const [loadingCompany, setLoadingCompany] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+
   const [restaurantType, setRestaurantType] = useState<string[]>([]);
   const [restaurantTypeOpen, setRestaurantTypeOpen] = useState(false);
+
+  /* ------------------------------------------------------------------
+     Designation dropdown
+     ------------------------------------------------------------------ */
+  const [designationId, setDesignationId] = useState("");
+  const [designationOpen, setDesignationOpen] = useState(false);
+  const [designations, setDesignations] = useState<DesignationOption[]>([]);
+  const [loadingDesignations, setLoadingDesignations] = useState(true);
+
   const restaurantTypeRef = useRef<HTMLDivElement>(null);
+  const designationRef = useRef<HTMLDivElement>(null);
+
   const emailDuplicateTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
     null,
   );
@@ -47,6 +72,7 @@ export default function CompanyRegistration() {
   const phoneDuplicateTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
     null,
   );
+
   const [restaurantCategories, setRestaurantCategories] = useState<
     {
       id: number;
@@ -61,23 +87,42 @@ export default function CompanyRegistration() {
   const [customBranchCount, setCustomBranchCount] = useState("");
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [companyLogo, setCompanyLogo] = useState<File | null>(null);
+
   const [formData, setFormData] = useState({
     companyName: "",
     name: "",
     email: "",
     phone: "",
     password: "",
-    designation: "",
     address: "",
   });
 
-  // =========================================================
-  // VALIDATION ERRORS & TOUCHED STATES
-  // =========================================================
+  /* ------------------------------------------------------------------
+     Inline status message
+     ------------------------------------------------------------------ */
+  const [statusMessage, setStatusMessage] = useState<StatusMessage | null>(
+    null,
+  );
 
+  const showStatus = (
+    type: StatusMessage["type"],
+    title: string,
+    text: string,
+  ) => {
+    setStatusMessage({ type, title, text });
+  };
+
+  const clearStatus = () => {
+    setStatusMessage(null);
+  };
+
+  /* ------------------------------------------------------------------
+     Field errors
+     ------------------------------------------------------------------ */
   const [errors, setErrors] = useState({
     email: "",
     phone: "",
+    designation: "",
     general: "",
   });
 
@@ -86,10 +131,22 @@ export default function CompanyRegistration() {
     phone: false,
   });
 
-  // =========================================================
-  // VALIDATION HELPERS
-  // =========================================================
+  /* ------------------------------------------------------------------
+     Auto-dismiss status
+     ------------------------------------------------------------------ */
+  useEffect(() => {
+    if (!statusMessage) return;
 
+    const timer = setTimeout(() => {
+      setStatusMessage(null);
+    }, 4000);
+
+    return () => clearTimeout(timer);
+  }, [statusMessage]);
+
+  /* ------------------------------------------------------------------
+     Validation helpers
+     ------------------------------------------------------------------ */
   const validateEmail = (email: string): string => {
     const trimmed = email.trim();
     if (!trimmed) return "Email is required.";
@@ -116,6 +173,9 @@ export default function CompanyRegistration() {
       : "Phone number must contain exactly 11 digits.";
   };
 
+  /* ------------------------------------------------------------------
+     Click outside handler (restaurant type + designation)
+     ------------------------------------------------------------------ */
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (
@@ -123,6 +183,13 @@ export default function CompanyRegistration() {
         !restaurantTypeRef.current.contains(event.target as Node)
       ) {
         setRestaurantTypeOpen(false);
+      }
+
+      if (
+        designationRef.current &&
+        !designationRef.current.contains(event.target as Node)
+      ) {
+        setDesignationOpen(false);
       }
     };
 
@@ -133,6 +200,9 @@ export default function CompanyRegistration() {
     };
   }, []);
 
+  /* ------------------------------------------------------------------
+     Cleanup timers
+     ------------------------------------------------------------------ */
   useEffect(() => {
     return () => {
       if (emailDuplicateTimerRef.current) {
@@ -145,10 +215,9 @@ export default function CompanyRegistration() {
     };
   }, []);
 
-  // =========================================================
-  // FETCH RESTAURANT CATEGORIES
-  // =========================================================
-
+  /* ------------------------------------------------------------------
+     Fetch restaurant categories
+     ------------------------------------------------------------------ */
   useEffect(() => {
     const fetchRestaurantCategories = async () => {
       try {
@@ -170,10 +239,12 @@ export default function CompanyRegistration() {
       } catch (error) {
         console.error("Error fetching restaurant categories:", error);
         setRestaurantCategories([]);
-        setErrors((previous) => ({
-          ...previous,
-          general: "Unable to load restaurant types from the server.",
-        }));
+
+        showStatus(
+          "error",
+          "Failed to load restaurant types",
+          "Unable to load restaurant types from the server.",
+        );
       } finally {
         setLoadingRestaurantCategories(false);
       }
@@ -182,10 +253,48 @@ export default function CompanyRegistration() {
     fetchRestaurantCategories();
   }, []);
 
-  // =========================================================
-  // FETCH COMPANY FOR EDIT
-  // =========================================================
+  /* ------------------------------------------------------------------
+     Fetch designations
+     ------------------------------------------------------------------ */
+  useEffect(() => {
+    const fetchDesignations = async () => {
+      try {
+        setLoadingDesignations(true);
 
+        const response = await fetch(
+          `${API_BASE_URL}/api/registration/designations`,
+        );
+
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(
+            data.message || "Failed to fetch designations.",
+          );
+        }
+
+        setDesignations(data.data || []);
+      } catch (error) {
+        console.error("Error fetching designations:", error);
+
+        setDesignations([]);
+
+        showStatus(
+          "error",
+          "Failed to load designations",
+          "Unable to load designations from the server.",
+        );
+      } finally {
+        setLoadingDesignations(false);
+      }
+    };
+
+    fetchDesignations();
+  }, []);
+
+  /* ------------------------------------------------------------------
+     Fetch company for edit
+     ------------------------------------------------------------------ */
   useEffect(() => {
     if (!companyId) return;
 
@@ -194,7 +303,7 @@ export default function CompanyRegistration() {
         setLoadingCompany(true);
 
         const response = await fetch(
-          `${API_BASE_URL}/api/companies/${companyId}`,
+          `${API_BASE_URL}/api/registration/company/${companyId}`,
           {
             credentials: "include",
             cache: "no-store",
@@ -209,17 +318,25 @@ export default function CompanyRegistration() {
 
         const company = result.data;
 
+        /* ----------------------------------------------------------
+           Populate form state, including `name` and `designation`
+           ---------------------------------------------------------- */
         setFormData((previous) => ({
           ...previous,
           companyName: company.company_name || "",
+          name: company.name || "",
           email: company.email || "",
           phone: company.phone || "",
           address: company.address || "",
           password: "",
-          name: "",
-          designation: "",
         }));
 
+        /* Designation */
+        if (company.designation) {
+          setDesignationId(String(company.designation));
+        }
+
+        /* Restaurant types */
         let restaurantTypes: string[] = [];
 
         if (company.restaurant_type) {
@@ -239,19 +356,12 @@ export default function CompanyRegistration() {
 
         setRestaurantType(restaurantTypes);
 
+        /* ----------------------------------------------------------
+           Branch count
+           ---------------------------------------------------------- */
         const savedBranchCount = Number(company.branchCount ?? 0);
 
-        if (savedBranchCount >= 1 && savedBranchCount <= 5) {
-          setBranchCount(String(savedBranchCount));
-          setCustomBranchCount("");
-        } else {
-          setBranchCount("Custom");
-          setCustomBranchCount(
-            savedBranchCount > 0 ? String(savedBranchCount) : "",
-          );
-        }
-
-        if (savedBranchCount >= 1 && savedBranchCount <= 5) {
+        if (savedBranchCount >= 0 && savedBranchCount <= 5) {
           setBranchCount(String(savedBranchCount));
           setCustomBranchCount("");
         } else {
@@ -259,18 +369,40 @@ export default function CompanyRegistration() {
           setCustomBranchCount(String(savedBranchCount));
         }
 
+        /* ----------------------------------------------------------
+           Logo preview
+           ----------------------------------------------------------
+           The DB stores the logo as a path such as:
+             /uploads/company/xxx.jpg
+
+           Some legacy rows may only store the filename:
+             xxx.jpg
+
+           Handle both cases without producing a double-prefixed URL.
+           ---------------------------------------------------------- */
         if (company.logo) {
-          setImagePreview(`${API_BASE_URL}/uploads/company/${company.logo}`);
+          const logo = String(company.logo).trim();
+
+          const logoSrc = logo.startsWith("http")
+            ? logo
+            : logo.startsWith("/uploads/")
+              ? `${API_BASE_URL}${logo}`
+              : logo.includes("/")
+                ? `${API_BASE_URL}${logo}`
+                : `${API_BASE_URL}/uploads/company/${logo}`;
+
+          setImagePreview(logoSrc);
         }
       } catch (error) {
         console.error("Failed to fetch company for editing:", error);
-        setErrors((previous) => ({
-          ...previous,
-          general:
-            error instanceof Error
-              ? error.message
-              : "Unable to load company information.",
-        }));
+
+        showStatus(
+          "error",
+          "Failed to load company",
+          error instanceof Error
+            ? error.message
+            : "Unable to load company information.",
+        );
       } finally {
         setLoadingCompany(false);
       }
@@ -279,10 +411,9 @@ export default function CompanyRegistration() {
     fetchCompany();
   }, [companyId]);
 
-  // =========================================================
-  // SERVER DUPLICATE CHECK
-  // =========================================================
-
+  /* ------------------------------------------------------------------
+     Server-side duplicate check
+     ------------------------------------------------------------------ */
   const checkDuplicateOnServer = async (
     field: "email" | "phone",
     value: string,
@@ -318,7 +449,6 @@ export default function CompanyRegistration() {
               : "This phone number is already registered.",
         }));
       } else {
-        // Clear duplicate error if the new value is available
         setErrors((prev) => ({
           ...prev,
           [field]: "",
@@ -329,18 +459,17 @@ export default function CompanyRegistration() {
     }
   };
 
-  // =========================================================
-  // FIXED: REALTIME INPUT CHANGE HANDLER
-  // =========================================================
-
+  /* ------------------------------------------------------------------
+     Realtime input change handler
+     ------------------------------------------------------------------ */
   const handleChange = (
     event: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>,
   ) => {
     const { name, value } = event.target;
-    setSuccessMessage("");
-    // =========================================================
-    // PHONE
-    // =========================================================
+
+    clearStatus();
+
+    /* ---------------- PHONE ---------------- */
     if (name === "phone") {
       const digitsOnly = value.replace(/\D/g, "").slice(0, 11);
 
@@ -349,12 +478,10 @@ export default function CompanyRegistration() {
         phone: digitsOnly,
       }));
 
-      // Clear previous phone duplicate-check timer
       if (phoneDuplicateTimerRef.current) {
         clearTimeout(phoneDuplicateTimerRef.current);
       }
 
-      // Validate format immediately
       const phoneErr = validatePhone(digitsOnly);
 
       setErrors((previous) => ({
@@ -363,7 +490,6 @@ export default function CompanyRegistration() {
         general: "",
       }));
 
-      // Only start duplicate check when format is valid
       if (!phoneErr) {
         phoneDuplicateTimerRef.current = setTimeout(() => {
           checkDuplicateOnServer("phone", digitsOnly);
@@ -373,21 +499,17 @@ export default function CompanyRegistration() {
       return;
     }
 
-    // =========================================================
-    // EMAIL
-    // =========================================================
+    /* ---------------- EMAIL ---------------- */
     if (name === "email") {
       setFormData((previous) => ({
         ...previous,
         email: value,
       }));
 
-      // Clear previous email duplicate-check timer
       if (emailDuplicateTimerRef.current) {
         clearTimeout(emailDuplicateTimerRef.current);
       }
 
-      // Validate format immediately
       const emailErr = validateEmail(value);
 
       setErrors((previous) => ({
@@ -396,7 +518,6 @@ export default function CompanyRegistration() {
         general: "",
       }));
 
-      // Only start duplicate check when format is valid
       if (!emailErr) {
         emailDuplicateTimerRef.current = setTimeout(() => {
           checkDuplicateOnServer("email", value);
@@ -406,9 +527,7 @@ export default function CompanyRegistration() {
       return;
     }
 
-    // =========================================================
-    // OTHER FIELDS
-    // =========================================================
+    /* ---------------- OTHER ---------------- */
     setFormData((previous) => ({
       ...previous,
       [name]: value,
@@ -420,10 +539,9 @@ export default function CompanyRegistration() {
     }));
   };
 
-  // =========================================================
-  // IMAGE CHANGE HANDLER
-  // =========================================================
-
+  /* ------------------------------------------------------------------
+     Image change handler
+     ------------------------------------------------------------------ */
   const handleImageChange = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
@@ -502,7 +620,9 @@ export default function CompanyRegistration() {
       const previewUrl = URL.createObjectURL(processedFile);
 
       setImagePreview((previous) => {
-        if (previous) URL.revokeObjectURL(previous);
+        if (previous && previous.startsWith("blob:")) {
+          URL.revokeObjectURL(previous);
+        }
         return previewUrl;
       });
 
@@ -514,21 +634,21 @@ export default function CompanyRegistration() {
       setCompanyLogo(null);
       event.target.value = "";
 
-      Swal.fire({
-        icon: "error",
-        title: "Unable to process image",
-        text: "Please select a valid image.",
-        confirmButtonColor: "#7d1119",
-      });
+      showStatus(
+        "error",
+        "Unable to process image",
+        "Please select a valid image.",
+      );
     }
   };
 
-  // =========================================================
-  // SUBMIT
-  // =========================================================
-
+  /* ------------------------------------------------------------------
+     Submit
+     ------------------------------------------------------------------ */
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+
+    clearStatus();
 
     const email = formData.email.trim();
     const phone = formData.phone.trim();
@@ -537,6 +657,11 @@ export default function CompanyRegistration() {
     const phoneError = validatePhone(phone);
 
     let generalError = "";
+    let designationError = "";
+
+    if (!designationId) {
+      designationError = "Please select a designation.";
+    }
 
     if (restaurantType.length === 0) {
       generalError = "Please select at least one restaurant type.";
@@ -544,7 +669,7 @@ export default function CompanyRegistration() {
 
     const finalBranchCount =
       branchCount === "Custom"
-        ? customBranchCount === ""
+        ? customBranchCount.trim() === ""
           ? 0
           : Number(customBranchCount)
         : Number(branchCount);
@@ -554,20 +679,23 @@ export default function CompanyRegistration() {
     }
 
     setTouched({ email: true, phone: true });
+
     setErrors({
       email: emailError,
       phone: phoneError,
+      designation: designationError,
       general: generalError,
     });
 
-    if (emailError || phoneError || generalError) return;
+    if (emailError || phoneError || designationError || generalError) return;
 
     try {
       setSubmitting(true);
 
+      /* ---------------- EDIT ---------------- */
       if (isEditMode && companyId) {
         const response = await fetch(
-          `${API_BASE_URL}/api/companies/${companyId}`,
+          `${API_BASE_URL}/api/registration/company/${companyId}`,
           {
             method: "PUT",
             headers: {
@@ -576,11 +704,13 @@ export default function CompanyRegistration() {
             credentials: "include",
             body: JSON.stringify({
               companyName: formData.companyName.trim(),
+              name: formData.name.trim(),
               email,
               phone,
               address: formData.address.trim(),
               restaurantType,
               branchCount: finalBranchCount,
+              designation: Number(designationId),
             }),
           },
         );
@@ -601,7 +731,8 @@ export default function CompanyRegistration() {
           if (data.code === "PHONE_EXISTS") {
             setErrors((previous) => ({
               ...previous,
-              phone: data.message || "This phone number is already registered.",
+              phone:
+                data.message || "This phone number is already registered.",
               general: "",
             }));
             return;
@@ -614,37 +745,44 @@ export default function CompanyRegistration() {
                 data.emailMessage ||
                 "This email address is already registered.",
               phone:
-                data.phoneMessage || "This phone number is already registered.",
+                data.phoneMessage ||
+                "This phone number is already registered.",
               general: "",
             }));
             return;
           }
 
-          setErrors((previous) => ({
-            ...previous,
-            general: data.message || "Registration failed.",
-          }));
+          showStatus(
+            "error",
+            "Update failed",
+            data.message || "Update failed.",
+          );
+
           return;
         }
 
-        setSuccessMessage("Company updated successfully.");
+        showStatus(
+          "success",
+          "Company updated successfully",
+          "Redirecting...",
+        );
 
         setTimeout(() => {
           window.location.href = "/root/list";
         }, 1200);
 
         return;
-        return;
       }
 
-      // Create new company
+      /* ---------------- CREATE ---------------- */
       const form = new FormData();
+
       form.append("companyName", formData.companyName.trim());
       form.append("name", formData.name.trim());
       form.append("email", email);
       form.append("phone", phone);
       form.append("password", formData.password);
-      form.append("designation", formData.designation.trim());
+      form.append("designation", String(designationId));
       form.append("address", formData.address.trim());
       form.append("restaurantType", JSON.stringify(restaurantType));
       form.append("branchCount", String(finalBranchCount));
@@ -653,11 +791,14 @@ export default function CompanyRegistration() {
         form.append("logo", companyLogo);
       }
 
-      const response = await fetch(`${API_BASE_URL}/api/registration/company`, {
-        method: "POST",
-        credentials: "include",
-        body: form,
-      });
+      const response = await fetch(
+        `${API_BASE_URL}/api/registration/company`,
+        {
+          method: "POST",
+          credentials: "include",
+          body: form,
+        },
+      );
 
       const data = await response.json();
 
@@ -673,29 +814,37 @@ export default function CompanyRegistration() {
         if (data.code === "PHONE_EXISTS") {
           setErrors((previous) => ({
             ...previous,
-            phone: data.message || "This phone number is already registered.",
+            phone:
+              data.message || "This phone number is already registered.",
           }));
           return;
         }
 
         if (data.code === "EMAIL_PHONE_EXISTS") {
-          setErrors({
+          setErrors((previous) => ({
+            ...previous,
             email: data.emailMessage || "This email is already registered.",
             phone:
-              data.phoneMessage || "This phone number is already registered.",
-            general: "",
-          });
+              data.phoneMessage ||
+              "This phone number is already registered.",
+          }));
           return;
         }
 
-        setErrors((previous) => ({
-          ...previous,
-          general: data.message || "Registration failed.",
-        }));
+        showStatus(
+          "error",
+          "Registration failed",
+          data.message || "Registration failed.",
+        );
+
         return;
       }
 
-      setSuccessMessage("Company registered successfully.");
+      showStatus(
+        "success",
+        "Company registered successfully",
+        "Redirecting...",
+      );
 
       setTimeout(() => {
         window.location.href = "/root/list";
@@ -703,18 +852,45 @@ export default function CompanyRegistration() {
     } catch (error) {
       console.error("Submit error:", error);
 
-      setErrors((previous) => ({
-        ...previous,
-        general:
-          error instanceof Error
-            ? error.message
-            : "Unable to connect to the server.",
-      }));
+      showStatus(
+        "error",
+        "Unable to connect to the server",
+        error instanceof Error
+          ? error.message
+          : "Please try again in a moment.",
+      );
     } finally {
       setSubmitting(false);
     }
   };
 
+  /* ------------------------------------------------------------------
+     Status helpers
+     ------------------------------------------------------------------ */
+  const statusStyles: Record<StatusMessage["type"], string> = {
+    success:
+      "border-green-300 bg-green-50 text-green-800 dark:border-green-800 dark:bg-green-950 dark:text-green-200",
+    error:
+      "border-red-300 bg-red-50 text-red-800 dark:border-red-800 dark:bg-red-950 dark:text-red-200",
+    warning:
+      "border-yellow-300 bg-yellow-50 text-yellow-800 dark:border-yellow-800 dark:bg-yellow-950 dark:text-yellow-200",
+  };
+
+  const StatusIcon = ({ type }: { type: StatusMessage["type"] }) => {
+    if (type === "success") return <CheckCircle2 className="h-4 w-4" />;
+    return <AlertCircle className="h-4 w-4" />;
+  };
+
+  /* ------------------------------------------------------------------
+     Selected designation object
+     ------------------------------------------------------------------ */
+  const selectedDesignation = designations.find(
+    (item) => String(item.id) === designationId,
+  );
+
+  /* ------------------------------------------------------------------
+     Render
+     ------------------------------------------------------------------ */
   return (
     <div className="min-h-screen bg-surface px-4 py-8">
       <div className="mx-auto w-full max-w-[620px]">
@@ -724,6 +900,31 @@ export default function CompanyRegistration() {
             {isEditMode ? "Edit Company" : "Company Registration"}
           </h1>
         </div>
+
+        {/* Inline status */}
+        {statusMessage && (
+          <div
+            className={`flex items-start gap-2 rounded-none border-x border-b px-3 py-2 text-xs ${statusStyles[statusMessage.type]}`}
+          >
+            <span className="mt-0.5 shrink-0">
+              <StatusIcon type={statusMessage.type} />
+            </span>
+
+            <div className="flex-1">
+              <p className="font-semibold">{statusMessage.title}</p>
+              <p className="mt-0.5">{statusMessage.text}</p>
+            </div>
+
+            <button
+              type="button"
+              onClick={clearStatus}
+              className="shrink-0 rounded p-0.5 transition hover:bg-black/10"
+              title="Dismiss"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        )}
 
         {/* Form */}
         <form
@@ -771,7 +972,9 @@ export default function CompanyRegistration() {
               <div ref={restaurantTypeRef} className="relative">
                 <button
                   type="button"
-                  onClick={() => setRestaurantTypeOpen((previous) => !previous)}
+                  onClick={() =>
+                    setRestaurantTypeOpen((previous) => !previous)
+                  }
                   disabled={loadingRestaurantCategories}
                   className="flex min-h-[46px] w-full items-center justify-between gap-3 border-b-2 border-secondary-light bg-transparent px-0 py-2 text-left outline-none transition-colors hover:border-primary focus:border-primary disabled:cursor-not-allowed disabled:opacity-60"
                 >
@@ -815,7 +1018,9 @@ export default function CompanyRegistration() {
                                   event.preventDefault();
                                   event.stopPropagation();
                                   setRestaurantType((previous) =>
-                                    previous.filter((id) => id !== selectedId),
+                                    previous.filter(
+                                      (id) => id !== selectedId,
+                                    ),
                                   );
                                 }
                               }}
@@ -858,8 +1063,8 @@ export default function CompanyRegistration() {
 
                     <div className="max-h-60 overflow-y-auto py-1">
                       {restaurantCategories.map((category) => {
-                        const categoryId = String(category.id);
-                        const isSelected = restaurantType.includes(categoryId);
+                        const catId = String(category.id);
+                        const isSelected = restaurantType.includes(catId);
 
                         return (
                           <button
@@ -867,12 +1072,12 @@ export default function CompanyRegistration() {
                             type="button"
                             onClick={() => {
                               setRestaurantType((previous) => {
-                                if (previous.includes(categoryId)) {
+                                if (previous.includes(catId)) {
                                   return previous.filter(
-                                    (id) => id !== categoryId,
+                                    (id) => id !== catId,
                                   );
                                 }
-                                return [...previous, categoryId];
+                                return [...previous, catId];
                               });
                             }}
                             className={`flex w-full items-center justify-between px-4 py-3 text-left text-sm transition ${
@@ -970,16 +1175,104 @@ export default function CompanyRegistration() {
               />
             )}
 
-            {/* Designation */}
-            <FormField
-              icon={<BriefcaseBusiness size={20} strokeWidth={2} />}
-              label="Designation"
-              name="designation"
-              value={formData.designation}
-              onChange={handleChange}
-              placeholder="Type designation"
-              required
-            />
+            {/* Designation (Dropdown) */}
+            <div>
+              <div className="mb-2 flex items-center gap-3">
+                <BriefcaseBusiness
+                  size={20}
+                  strokeWidth={2}
+                  className="text-text-primary"
+                />
+                <label className="text-base font-bold text-text-primary">
+                  Designation
+                  <span className="ml-1 text-secondary">*</span>
+                </label>
+              </div>
+
+              <div ref={designationRef} className="relative">
+                <button
+                  type="button"
+                  onClick={() =>
+                    setDesignationOpen((previous) => !previous)
+                  }
+                  disabled={loadingDesignations}
+                  className="flex min-h-[46px] w-full items-center justify-between gap-3 border-b-2 border-secondary-light bg-transparent px-0 py-2 text-left outline-none transition-colors hover:border-primary focus:border-primary disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  <span
+                    className={
+                      selectedDesignation
+                        ? "text-[16px] text-text-primary"
+                        : "text-[16px] text-text-muted"
+                    }
+                  >
+                    {loadingDesignations
+                      ? "Loading designations..."
+                      : selectedDesignation
+                        ? selectedDesignation.name
+                        : "Select designation..."}
+                  </span>
+
+                  <ChevronDown
+                    size={20}
+                    className={`shrink-0 text-text-secondary transition-transform duration-200 ${
+                      designationOpen ? "rotate-180" : ""
+                    }`}
+                  />
+                </button>
+
+                {designationOpen && !loadingDesignations && (
+                  <div className="absolute left-0 right-0 z-50 mt-2 overflow-hidden rounded-md border border-border bg-white shadow-lg">
+                    <div className="max-h-60 overflow-y-auto py-1">
+                      {designations.length === 0 ? (
+                        <div className="px-4 py-4 text-center text-sm text-text-muted">
+                          No designations available.
+                        </div>
+                      ) : (
+                        designations.map((item) => {
+                          const isSelected =
+                            String(item.id) === designationId;
+
+                          return (
+                            <button
+                              key={item.id}
+                              type="button"
+                              onClick={() => {
+                                setDesignationId(String(item.id));
+                                setDesignationOpen(false);
+
+                                if (errors.designation) {
+                                  setErrors((previous) => ({
+                                    ...previous,
+                                    designation: "",
+                                  }));
+                                }
+                              }}
+                              className={`flex w-full items-center justify-between px-4 py-3 text-left text-sm transition ${
+                                isSelected
+                                  ? "bg-primary-light text-white"
+                                  : "text-text-primary hover:bg-surface"
+                              }`}
+                            >
+                              <span>{item.name}</span>
+
+                              {isSelected && (
+                                <Check size={14} strokeWidth={3} />
+                              )}
+                            </button>
+                          );
+                        })
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {errors.designation && (
+                <p className="mt-1 text-sm text-danger">
+                  {errors.designation}
+                </p>
+              )}
+            </div>
 
             {/* Address */}
             <FormField
@@ -1008,7 +1301,7 @@ export default function CompanyRegistration() {
 
               <div className="flex items-center gap-3 border-b-2 border-secondary-light pb-3">
                 <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-                  {["1", "2", "3", "4", "5", "Custom"].map((value) => (
+                  {["0", "1", "2", "3", "4", "5", "Custom"].map((value) => (
                     <label
                       key={value}
                       className="flex cursor-pointer items-center gap-1.5 text-sm text-text-primary"
@@ -1037,22 +1330,26 @@ export default function CompanyRegistration() {
 
                 {branchCount === "Custom" && (
                   <input
-                    type="number"
+                    type="text"
                     inputMode="numeric"
+                    pattern="[0-9]*"
                     value={customBranchCount}
                     onChange={(event) => {
-                      const value = event.target.value;
+                      const rawValue = event.target.value;
 
-                      // Empty input is valid.
-                      if (value === "") {
+                      if (rawValue === "") {
                         setCustomBranchCount("");
                         return;
                       }
 
-                      // Allow only non-negative whole numbers.
-                      if (/^\d+$/.test(value)) {
-                        setCustomBranchCount(value);
+                      if (!/^\d+$/.test(rawValue)) {
+                        return;
                       }
+
+                      const normalized =
+                        rawValue.replace(/^0+(?=\d)/, "") || "0";
+
+                      setCustomBranchCount(normalized);
                     }}
                     onWheel={(event) => {
                       event.currentTarget.blur();
@@ -1068,7 +1365,7 @@ export default function CompanyRegistration() {
                       }
                     }}
                     placeholder="0"
-                    className="w-20 shrink-0 appearance-none border-b-2 border-secondary-light bg-transparent px-1 py-1 text-center text-[16px] text-text-primary outline-none transition-colors placeholder:text-text-muted focus:border-primary [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                    className="w-20 shrink-0 appearance-none border-b-2 border-secondary-light bg-transparent px-1 py-1 text-center text-[16px] text-text-primary outline-none transition-colors placeholder:text-text-muted focus:border-primary"
                   />
                 )}
               </div>
@@ -1096,6 +1393,11 @@ export default function CompanyRegistration() {
                     src={imagePreview}
                     alt="Company preview"
                     className="mb-3 h-20 w-20 object-contain"
+                    onError={() => {
+                      /* If the stored URL is broken, clear it so the
+                         upload icon is shown instead of a broken image. */
+                      setImagePreview(null);
+                    }}
                   />
                 ) : (
                   <UploadCloud
@@ -1133,12 +1435,6 @@ export default function CompanyRegistration() {
             </div>
           )}
 
-          {successMessage && (
-            <div className="mt-5 rounded-md border border-green-200 bg-green-50 px-4 py-2.5 text-sm font-medium text-green-700">
-              {successMessage}
-            </div>
-          )}
-
           {/* Buttons */}
           <div className="mt-8 flex items-center justify-between gap-4">
             <Link
@@ -1151,7 +1447,9 @@ export default function CompanyRegistration() {
 
             <button
               type="submit"
-              disabled={submitting || loadingCompany}
+              disabled={
+                submitting || loadingCompany || loadingDesignations
+              }
               className="inline-flex min-w-[135px] items-center justify-center rounded-md bg-primary px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-60"
             >
               {submitting
@@ -1179,7 +1477,6 @@ function FormField({
   name,
   value,
   onChange,
-  onBlur,
   placeholder,
   type = "text",
   required = false,
@@ -1191,7 +1488,6 @@ function FormField({
   onChange: (
     event: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>,
   ) => void;
-  onBlur?: (event: FocusEvent<HTMLInputElement | HTMLTextAreaElement>) => void;
   placeholder: string;
   type?: string;
   required?: boolean;
@@ -1214,7 +1510,6 @@ function FormField({
         name={name}
         value={value}
         onChange={onChange}
-        onBlur={onBlur}
         placeholder={placeholder}
         required={required}
         className="w-full border-b-2 border-secondary-light bg-transparent px-0 py-2 text-[16px] text-text-primary outline-none transition-colors placeholder:text-text-muted focus:border-primary"

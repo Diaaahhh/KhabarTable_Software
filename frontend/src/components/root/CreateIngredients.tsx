@@ -1,9 +1,16 @@
 "use client";
 
 import React, { FormEvent, useEffect, useState } from "react";
-import { Pencil, Trash2, X } from "lucide-react";
-import Swal from "sweetalert2";
+import {
+  AlertCircle,
+  CheckCircle2,
+  Pencil,
+  Trash2,
+  X,
+} from "lucide-react";
+
 import { API_BASE_URL } from "../../constants/api";
+import { capitalizeWords } from "../../utils/formatText";
 
 interface Unit {
   id: number;
@@ -18,6 +25,12 @@ interface Ingredient {
   cost_per_unit: number;
 }
 
+interface StatusMessage {
+  type: "success" | "error" | "warning";
+  title: string;
+  text: string;
+}
+
 const CreateIngredients = () => {
   // =========================================================
   // FORM STATES
@@ -27,6 +40,7 @@ const CreateIngredients = () => {
   const [unitId, setUnitId] = useState("");
   const [costPerUnit, setCostPerUnit] = useState("");
   const [searchTerm, setSearchTerm] = useState("");
+
   // =========================================================
   // DATA STATES
   // =========================================================
@@ -42,6 +56,40 @@ const CreateIngredients = () => {
   const [submitting, setSubmitting] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [deletingId, setDeletingId] = useState<number | null>(null);
+
+  // =========================================================
+  // INLINE STATUS MESSAGE
+  // =========================================================
+
+  const [statusMessage, setStatusMessage] = useState<StatusMessage | null>(
+    null,
+  );
+
+  const showStatus = (
+    type: StatusMessage["type"],
+    title: string,
+    text: string,
+  ) => {
+    setStatusMessage({ type, title, text });
+  };
+
+  const clearStatus = () => {
+    setStatusMessage(null);
+  };
+
+  // =========================================================
+  // AUTO DISMISS STATUS
+  // =========================================================
+
+  useEffect(() => {
+    if (!statusMessage) return;
+
+    const timer = setTimeout(() => {
+      setStatusMessage(null);
+    }, 4000);
+
+    return () => clearTimeout(timer);
+  }, [statusMessage]);
 
   // =========================================================
   // FETCH UNITS
@@ -67,11 +115,11 @@ const CreateIngredients = () => {
     } catch (error) {
       console.error("Failed to fetch units:", error);
 
-      Swal.fire({
-        icon: "error",
-        title: "Failed",
-        text: error instanceof Error ? error.message : "Failed to load units.",
-      });
+      showStatus(
+        "error",
+        "Failed to load units",
+        error instanceof Error ? error.message : "Failed to load units.",
+      );
     }
   };
 
@@ -96,14 +144,13 @@ const CreateIngredients = () => {
     } catch (error) {
       console.error("Failed to fetch ingredients:", error);
 
-      Swal.fire({
-        icon: "error",
-        title: "Failed",
-        text:
-          error instanceof Error
-            ? error.message
-            : "Failed to load ingredients.",
-      });
+      showStatus(
+        "error",
+        "Failed to load ingredients",
+        error instanceof Error
+          ? error.message
+          : "Failed to load ingredients.",
+      );
     }
   };
 
@@ -143,7 +190,9 @@ const CreateIngredients = () => {
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
-    const cleanName = ingredientName.trim();
+    clearStatus();
+
+    const cleanName = capitalizeWords(ingredientName.trim());
     const numericCost = Number(costPerUnit);
 
     // ---------------------------------------------------------
@@ -151,20 +200,20 @@ const CreateIngredients = () => {
     // ---------------------------------------------------------
 
     if (!cleanName) {
-      Swal.fire({
-        icon: "warning",
-        title: "Ingredient Name Required",
-        text: "Please enter an ingredient name.",
-      });
+      showStatus(
+        "warning",
+        "Ingredient Name Required",
+        "Please enter an ingredient name.",
+      );
       return;
     }
 
     if (!unitId) {
-      Swal.fire({
-        icon: "warning",
-        title: "Unit Required",
-        text: "Please select a unit.",
-      });
+      showStatus(
+        "warning",
+        "Unit Required",
+        "Please select a unit.",
+      );
       return;
     }
 
@@ -173,11 +222,11 @@ const CreateIngredients = () => {
       !Number.isFinite(numericCost) ||
       numericCost < 0
     ) {
-      Swal.fire({
-        icon: "warning",
-        title: "Invalid Cost",
-        text: "Please enter a valid cost.",
-      });
+      showStatus(
+        "warning",
+        "Invalid Cost",
+        "Please enter a valid cost.",
+      );
       return;
     }
 
@@ -212,15 +261,12 @@ const CreateIngredients = () => {
         );
       }
 
-      await Swal.fire({
-        icon: "success",
-        title: isEditing ? "Ingredient Updated" : "Ingredient Created",
-        text:
-          data.message ||
+      showStatus(
+        "success",
+        isEditing ? "Ingredient Updated" : "Ingredient Created",
+        data.message ||
           `Ingredient ${isEditing ? "updated" : "created"} successfully.`,
-        timer: 1500,
-        showConfirmButton: false,
-      });
+      );
 
       resetForm();
 
@@ -228,11 +274,11 @@ const CreateIngredients = () => {
     } catch (error) {
       console.error("Ingredient submit error:", error);
 
-      Swal.fire({
-        icon: "error",
-        title: "Operation Failed",
-        text: error instanceof Error ? error.message : "Something went wrong.",
-      });
+      showStatus(
+        "error",
+        "Operation Failed",
+        error instanceof Error ? error.message : "Something went wrong.",
+      );
     } finally {
       setSubmitting(false);
     }
@@ -243,13 +289,14 @@ const CreateIngredients = () => {
   // =========================================================
 
   const handleEdit = (ingredient: Ingredient) => {
+    clearStatus();
+
     setEditingId(ingredient.id);
 
     setIngredientName(ingredient.ingredient_name);
     setUnitId(String(ingredient.unit_id));
     setCostPerUnit(Number(ingredient.cost_per_unit).toFixed(2));
 
-    // Scroll to the form
     window.scrollTo({
       top: 0,
       behavior: "smooth",
@@ -261,18 +308,13 @@ const CreateIngredients = () => {
   // =========================================================
 
   const handleDelete = async (ingredient: Ingredient) => {
-    const result = await Swal.fire({
-      icon: "warning",
-      title: "Delete Ingredient?",
-      text: `Are you sure you want to delete "${ingredient.ingredient_name}"?`,
-      showCancelButton: true,
-      confirmButtonText: "Yes, Delete",
-      cancelButtonText: "Cancel",
-      confirmButtonColor: "#7d1119",
-      cancelButtonColor: "#717b8b",
-    });
+    clearStatus();
 
-    if (!result.isConfirmed) {
+    const confirmed = window.confirm(
+      `Are you sure you want to delete "${ingredient.ingredient_name}"?`,
+    );
+
+    if (!confirmed) {
       return;
     }
 
@@ -293,31 +335,27 @@ const CreateIngredients = () => {
         throw new Error(data.message || "Failed to delete ingredient.");
       }
 
-      // If deleted item was being edited, reset the form
       if (editingId === ingredient.id) {
         resetForm();
       }
 
-      await Swal.fire({
-        icon: "success",
-        title: "Deleted",
-        text: data.message || "Ingredient deleted successfully.",
-        timer: 1500,
-        showConfirmButton: false,
-      });
+      showStatus(
+        "success",
+        "Deleted",
+        data.message || "Ingredient deleted successfully.",
+      );
 
       await fetchIngredients();
     } catch (error) {
       console.error("Delete ingredient error:", error);
 
-      Swal.fire({
-        icon: "error",
-        title: "Delete Failed",
-        text:
-          error instanceof Error
-            ? error.message
-            : "Failed to delete ingredient.",
-      });
+      showStatus(
+        "error",
+        "Delete Failed",
+        error instanceof Error
+          ? error.message
+          : "Failed to delete ingredient.",
+      );
     } finally {
       setDeletingId(null);
     }
@@ -334,6 +372,25 @@ const CreateIngredients = () => {
       String(ingredient.cost_per_unit).includes(search)
     );
   });
+
+  // =========================================================
+  // STATUS STYLES
+  // =========================================================
+
+  const statusStyles: Record<StatusMessage["type"], string> = {
+    success:
+      "border-green-300 bg-green-50 text-green-800 dark:border-green-800 dark:bg-green-950 dark:text-green-200",
+    error:
+      "border-red-300 bg-red-50 text-red-800 dark:border-red-800 dark:bg-red-950 dark:text-red-200",
+    warning:
+      "border-yellow-300 bg-yellow-50 text-yellow-800 dark:border-yellow-800 dark:bg-yellow-950 dark:text-yellow-200",
+  };
+
+  const StatusIcon = ({ type }: { type: StatusMessage["type"] }) => {
+    if (type === "success") return <CheckCircle2 className="h-4 w-4" />;
+    return <AlertCircle className="h-4 w-4" />;
+  };
+
   // =========================================================
   // RENDER
   // =========================================================
@@ -341,13 +398,40 @@ const CreateIngredients = () => {
   return (
     <div className="min-h-screen bg-surface-dark p-4 md:p-6">
       <div className="mx-auto max-w-7xl space-y-6">
+
+        {/* ===================================================
+            INLINE STATUS MESSAGE
+        =================================================== */}
+
+        {statusMessage && (
+          <div
+            className={`flex items-start gap-2 rounded-lg border px-3 py-2 text-xs ${statusStyles[statusMessage.type]}`}
+          >
+            <span className="mt-0.5 shrink-0">
+              <StatusIcon type={statusMessage.type} />
+            </span>
+
+            <div className="flex-1">
+              <p className="font-semibold">{statusMessage.title}</p>
+              <p className="mt-0.5">{statusMessage.text}</p>
+            </div>
+
+            <button
+              type="button"
+              onClick={clearStatus}
+              className="shrink-0 rounded p-0.5 transition hover:bg-black/10"
+              title="Dismiss"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        )}
+
         {/* ===================================================
             FORM CARD
         =================================================== */}
 
         <div className="rounded-xl border border-border bg-surface shadow-sm">
-          {/* Header */}
-
           <div className="border-b border-border px-6 py-5">
             <h1 className="text-xl font-semibold text-text-primary">
               {editingId !== null ? "Edit Ingredient" : "Create Ingredient"}
@@ -360,12 +444,9 @@ const CreateIngredients = () => {
             </p>
           </div>
 
-          {/* Form */}
-
           <form onSubmit={handleSubmit} className="p-6">
             <div className="grid grid-cols-1 gap-5 md:grid-cols-3">
               {/* Ingredient Name */}
-
               <div>
                 <label
                   htmlFor="ingredientName"
@@ -379,7 +460,12 @@ const CreateIngredients = () => {
                   id="ingredientName"
                   type="text"
                   value={ingredientName}
-                  onChange={(event) => setIngredientName(event.target.value)}
+                  onChange={(event) =>
+                    setIngredientName(capitalizeWords(event.target.value))
+                  }
+                  onBlur={(event) =>
+                    setIngredientName(capitalizeWords(event.target.value))
+                  }
                   placeholder="Enter ingredient name"
                   disabled={submitting}
                   className="
@@ -405,7 +491,6 @@ const CreateIngredients = () => {
               </div>
 
               {/* Unit */}
-
               <div>
                 <label
                   htmlFor="unit"
@@ -450,7 +535,6 @@ const CreateIngredients = () => {
               </div>
 
               {/* Cost */}
-
               <div>
                 <label
                   htmlFor="costPerUnit"
@@ -486,36 +570,34 @@ const CreateIngredients = () => {
                     placeholder="0.00"
                     disabled={submitting}
                     className="
-    w-full
-    rounded-lg
-    border
-    border-border
-    bg-white
-    py-3
-    pl-10
-    pr-4
-    text-sm
-    text-text-primary
-    outline-none
-    transition
-    placeholder:text-text-muted
-    focus:border-primary
-    focus:ring-2
-    focus:ring-primary/10
-    disabled:cursor-not-allowed
-    disabled:bg-surface-grey
-
-    [appearance:textfield]
-    [&::-webkit-inner-spin-button]:appearance-none
-    [&::-webkit-outer-spin-button]:appearance-none
-  "
+                      w-full
+                      rounded-lg
+                      border
+                      border-border
+                      bg-white
+                      py-3
+                      pl-10
+                      pr-4
+                      text-sm
+                      text-text-primary
+                      outline-none
+                      transition
+                      placeholder:text-text-muted
+                      focus:border-primary
+                      focus:ring-2
+                      focus:ring-primary/10
+                      disabled:cursor-not-allowed
+                      disabled:bg-surface-grey
+                      [appearance:textfield]
+                      [&::-webkit-inner-spin-button]:appearance-none
+                      [&::-webkit-outer-spin-button]:appearance-none
+                    "
                   />
                 </div>
               </div>
             </div>
 
             {/* Buttons */}
-
             <div className="mt-6 flex flex-wrap items-center gap-3">
               <button
                 type="submit"
@@ -581,8 +663,6 @@ const CreateIngredients = () => {
         =================================================== */}
 
         <div className="rounded-xl border border-border bg-surface shadow-sm">
-          {/* Table Header */}
-
           <div className="border-b border-border px-6 py-5">
             <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
               <div>
@@ -602,28 +682,26 @@ const CreateIngredients = () => {
                   onChange={(event) => setSearchTerm(event.target.value)}
                   placeholder="Search ingredients..."
                   className="
-          w-full
-          rounded-lg
-          border
-          border-border
-          bg-white
-          px-4
-          py-3
-          text-sm
-          text-text-primary
-          outline-none
-          transition
-          placeholder:text-text-muted
-          focus:border-primary
-          focus:ring-2
-          focus:ring-primary/10
-        "
+                    w-full
+                    rounded-lg
+                    border
+                    border-border
+                    bg-white
+                    px-4
+                    py-3
+                    text-sm
+                    text-text-primary
+                    outline-none
+                    transition
+                    placeholder:text-text-muted
+                    focus:border-primary
+                    focus:ring-2
+                    focus:ring-primary/10
+                  "
                 />
               </div>
             </div>
           </div>
-
-          {/* Table */}
 
           <div className="overflow-x-auto">
             <table className="w-full min-w-[700px]">
@@ -678,36 +756,25 @@ const CreateIngredients = () => {
                       key={ingredient.id}
                       className="transition hover:bg-surface-dark"
                     >
-                      {/* # */}
-
                       <td className="whitespace-nowrap px-6 py-4 text-sm text-text-secondary">
                         {index + 1}
                       </td>
-
-                      {/* Ingredient Name */}
 
                       <td className="px-6 py-4 text-sm font-medium text-text-primary">
                         {ingredient.ingredient_name}
                       </td>
 
-                      {/* Unit */}
-
                       <td className="px-6 py-4 text-sm text-text-secondary">
                         {ingredient.unit_name}
                       </td>
-
-                      {/* Cost */}
 
                       <td className="px-6 py-4 text-right text-sm font-medium text-text-primary">
                         ৳{Number(ingredient.cost_per_unit).toFixed(2)}
                       </td>
 
-                      {/* Actions */}
-
                       <td className="px-6 py-4">
                         <div className="flex items-center justify-center gap-2">
                           {/* Edit */}
-
                           <button
                             type="button"
                             onClick={() => handleEdit(ingredient)}
@@ -735,7 +802,6 @@ const CreateIngredients = () => {
                           </button>
 
                           {/* Delete */}
-
                           <button
                             type="button"
                             onClick={() => handleDelete(ingredient)}

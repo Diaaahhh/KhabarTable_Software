@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 
 import { API_BASE_URL } from "../../constants/api";
+import { capitalizeWords } from "../../utils/formatText";
 
 interface MenuCategory {
   id: number;
@@ -293,7 +294,9 @@ const CreateSubMenu = () => {
       return;
     }
 
-    if (!menuName.trim()) {
+    const cleanMenuName = capitalizeWords(menuName.trim());
+
+    if (!cleanMenuName) {
       showStatus(
         "warning",
         "Menu Name Required",
@@ -327,7 +330,7 @@ const CreateSubMenu = () => {
           body: JSON.stringify({
             menu_category_id:
               Number(menuCategory),
-            menu_name: menuName.trim(),
+            menu_name: cleanMenuName,
             ingredients:
               ingredients.map(Number),
           }),
@@ -462,7 +465,9 @@ const CreateSubMenu = () => {
       return;
     }
 
-    if (!editingName.trim()) {
+    const cleanEditingName = capitalizeWords(editingName.trim());
+
+    if (!cleanEditingName) {
       showStatus(
         "warning",
         "Menu Name Required",
@@ -496,7 +501,7 @@ const CreateSubMenu = () => {
           body: JSON.stringify({
             menu_category_id:
               Number(editingCategory),
-            menu_name: editingName.trim(),
+            menu_name: cleanEditingName,
             ingredients:
               editingIngredients.map(Number),
           }),
@@ -746,7 +751,12 @@ const CreateSubMenu = () => {
                   value={menuName}
                   onChange={(e) =>
                     setMenuName(
-                      e.target.value,
+                      capitalizeWords(e.target.value),
+                    )
+                  }
+                  onBlur={(e) =>
+                    setMenuName(
+                      capitalizeWords(e.target.value),
                     )
                   }
                   placeholder="Enter menu name"
@@ -1070,7 +1080,16 @@ const CreateSubMenu = () => {
                                 }
                                 onChange={(e) =>
                                   setEditingName(
-                                    e.target.value,
+                                    capitalizeWords(
+                                      e.target.value,
+                                    ),
+                                  )
+                                }
+                                onBlur={(e) =>
+                                  setEditingName(
+                                    capitalizeWords(
+                                      e.target.value,
+                                    ),
                                   )
                                 }
                                 disabled={
