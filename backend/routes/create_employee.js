@@ -16,6 +16,10 @@ if (!fs.existsSync(uploadDirectory)) {
   fs.mkdirSync(uploadDirectory, { recursive: true });
 }
 
+/* ======================================================
+   MULTER STORAGE
+   ====================================================== */
+
 const storage = multer.diskStorage({
   destination: function (req, file, cb) {
     cb(null, uploadDirectory);
@@ -48,12 +52,18 @@ const upload = multer({
     ];
 
     if (!allowedTypes.includes(file.mimetype)) {
-      return cb(new Error("Only JPG, JPEG, PNG and WEBP images are allowed."));
+      return cb(
+        new Error("Only JPG, JPEG, PNG and WEBP images are allowed."),
+      );
     }
 
     cb(null, true);
   },
 });
+
+/* ======================================================
+   GET USER FROM COOKIE
+   ====================================================== */
 
 function getUserFromCookie(req) {
   if (!req.cookies) return null;
@@ -71,12 +81,16 @@ function getUserFromCookie(req) {
         return parsedValue;
       }
     } catch {
-      // ignore
+      // Ignore cookies that are not JSON user data.
     }
   }
 
   return null;
 }
+
+/* ======================================================
+   SAFE DELETE UPLOADED FILE
+   ====================================================== */
 
 function safeDeleteFile(file) {
   if (!file) return;
@@ -90,8 +104,14 @@ function safeDeleteFile(file) {
   }
 }
 
+/* ======================================================
+   STRING HELPERS
+   ====================================================== */
+
 function toNullableString(value) {
-  if (value === undefined || value === null) return null;
+  if (value === undefined || value === null) {
+    return null;
+  }
 
   const trimmed = String(value).trim();
 
@@ -99,7 +119,9 @@ function toNullableString(value) {
 }
 
 function toNullableDate(value) {
-  if (value === undefined || value === null) return null;
+  if (value === undefined || value === null) {
+    return null;
+  }
 
   const trimmed = String(value).trim();
 
@@ -107,7 +129,9 @@ function toNullableDate(value) {
 }
 
 /* ======================================================
-   CHECK DUPLICATE EMPLOYEE ID (public_id)
+   CHECK DUPLICATE EMPLOYEE ID
+   Duplicate only when BOTH:
+   company_id + public_id match
    ====================================================== */
 
 router.post("/check-employee-id", async (req, res) => {
@@ -165,16 +189,80 @@ router.post("/check-employee-id", async (req, res) => {
     });
   }
 });
+/* =========================================================
+   CHECK DUPLICATE PERSONAL EMAIL
+   ========================================================= */
 
-// ======================================================
-// CREATE EMPLOYEE
-// ======================================================
+router.post("/check-email", async (req, res) => {
+  try {
+    const user = getUserFromCookie(req);
+
+    if (!user) {
+      return res.status(401).json({
+        success: false,
+        message: "User authentication cookie is missing.",
+      });
+    }
+
+    const company_id = Number(user.company_id);
+
+    if (!company_id) {
+      return res.status(400).json({
+        success: false,
+        message: "Company ID is missing.",
+      });
+    }
+
+    const personal_email = String(
+      req.body?.personal_email ?? "",
+    )
+      .trim()
+      .toLowerCase();
+
+    if (!personal_email) {
+      return res.status(400).json({
+        success: false,
+        message: "Personal email is required.",
+      });
+    }
+
+    const [rows] = await db.query(
+      `
+        SELECT id
+        FROM employees_employee
+        WHERE company_id = ?
+          AND LOWER(personal_email) = ?
+        LIMIT 1
+      `,
+      [company_id, personal_email],
+    );
+
+    return res.json({
+      success: true,
+      exists: rows.length > 0,
+    });
+  } catch (error) {
+    console.error("Check employee email error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Unable to check Personal Email.",
+    });
+  }
+});
+/* ======================================================
+   CREATE EMPLOYEE
+   ====================================================== */
 
 router.post(
   "/create-employee",
   upload.single("photo"),
   async (req, res) => {
     try {
+      /* ======================================================
+         AUTHENTICATION
+         ====================================================== */
+
       const user = getUserFromCookie(req);
 
       if (!user) {
@@ -189,6 +277,10 @@ router.post(
       const company_id = user.company_id;
       const created_by_id = user.id;
 
+      /* ======================================================
+         GET FORM DATA
+         ====================================================== */
+
       const {
         employee_id,
         first_name,
@@ -199,6 +291,7 @@ router.post(
         blood_group,
         marital_status,
         national_id,
+        driving_lecense,
         passport_number,
         address,
         emergency_contact_name,
@@ -208,6 +301,10 @@ router.post(
         confirmation_date,
         employment_status,
       } = req.body;
+
+      /* ======================================================
+         REQUIRED FIELD VALIDATION
+         ====================================================== */
 
       const requiredFields = [
         [employee_id, "Employee ID is required."],
@@ -237,13 +334,9 @@ router.post(
         }
       }
 
-      const photo = req.file ? req.file.filename : null;
-
-      // ======================================================
-      // CHECK DUPLICATE EMPLOYEE ID
-      // Same logic as /check-employee-id:
-      // duplicate only when BOTH company_id and public_id match
-      // ======================================================
+      /* ======================================================
+         EMPLOYEE ID
+         ====================================================== */
 
       const cleanEmployeeId = toNullableString(employee_id);
 
@@ -255,6 +348,92 @@ router.post(
           message: "Employee ID is required.",
         });
       }
+
+      /* ======================================================
+         NATIONAL ID VALIDATION
+         Required
+         Numbers only
+         10–17 digits
+         ====================================================== */
+
+      const cleanNationalId = String(national_id).trim();
+
+      if (!/^\d{10,17}$/.test(cleanNationalId)) {
+        safeDeleteFile(req.file);
+
+        return res.status(400).json({
+          success: false,
+          message:
+            "National ID must contain only numbers and be 10 to 17 digits.",
+        });
+      }
+
+      /* ======================================================
+         DRIVING LICENSE VALIDATION
+         Optional
+         Numbers only
+         10–17 digits if provided
+         ====================================================== */
+
+      const cleanDrivingLicense = toNullableString(driving_lecense);
+
+      if (
+        cleanDrivingLicense &&
+        !/^\d{10,17}$/.test(cleanDrivingLicense)
+      ) {
+        safeDeleteFile(req.file);
+
+        return res.status(400).json({
+          success: false,
+          message:
+            "Driving License must contain only numbers and be 10 to 17 digits.",
+        });
+      }
+
+      /* ======================================================
+         PHONE VALIDATION
+         Numbers only
+         Maximum 11 digits
+         ====================================================== */
+
+      const cleanPhone = String(phone).trim();
+
+      if (!/^\d{1,11}$/.test(cleanPhone)) {
+        safeDeleteFile(req.file);
+
+        return res.status(400).json({
+          success: false,
+          message: "Phone number must contain only numbers and maximum 11 digits.",
+        });
+      }
+
+      /* ======================================================
+         EMERGENCY PHONE VALIDATION
+         Optional
+         Maximum 11 digits
+         ====================================================== */
+
+      const cleanEmergencyPhone = toNullableString(
+        emergency_contact_phone,
+      );
+
+      if (
+        cleanEmergencyPhone &&
+        !/^\d{1,11}$/.test(cleanEmergencyPhone)
+      ) {
+        safeDeleteFile(req.file);
+
+        return res.status(400).json({
+          success: false,
+          message:
+            "Emergency contact phone must contain only numbers and maximum 11 digits.",
+        });
+      }
+
+      /* ======================================================
+         CHECK DUPLICATE EMPLOYEE ID
+         Same company only
+         ====================================================== */
 
       const [existingEmployee] = await db.query(
         `
@@ -276,46 +455,269 @@ router.post(
         });
       }
 
-      // ======================================================
-      // EMPLOYEE INSERT VALUES
-      // ======================================================
+      /* ======================================================
+         PHOTO
+         ====================================================== */
+
+      const photo = req.file ? req.file.filename : null;
+
+      /* ======================================================
+         INSERT VALUES
+         ====================================================== */
 
       const values = [
-        company_id,
-        created_by_id,
-        cleanEmployeeId,
-        String(first_name).trim(),
-        String(personal_email).trim(),
-        String(phone).trim(),
-        toNullableDate(date_of_birth),
-        String(gender).trim(),
-        String(blood_group).trim(),
-        String(marital_status).trim(),
-        String(national_id).trim(),
-        String(passport_number ?? "").trim(),
-        String(address).trim(),
-        String(emergency_contact_name ?? "").trim(),
-        String(emergency_contact_phone ?? "").trim(),
-        String(emergency_contact_relation ?? "").trim(),
-        toNullableDate(joining_date),
-        toNullableDate(confirmation_date),
-        String(employment_status || "active").trim(),
-        photo,
-        JSON.stringify({}),
-      ];
+  company_id,
+  created_by_id,
+  cleanEmployeeId,
+  String(first_name).trim(),
+  String(personal_email).trim(),
+  cleanPhone,
+  toNullableDate(date_of_birth),
+  String(gender).trim(),
+  String(blood_group).trim(),
+  String(marital_status).trim(),
+  cleanNationalId,
+  toNullableString(passport_number),
+  String(address).trim(),
+  toNullableString(emergency_contact_name),
+  cleanEmergencyPhone,
+  toNullableString(emergency_contact_relation),
+  toNullableDate(joining_date),
+  toNullableDate(confirmation_date),
+  String(employment_status || "active").trim(),
+  photo,
+  JSON.stringify({}),
+  cleanDrivingLicense,
+];
 
-      const sql = `
-        INSERT INTO employees_employee (
+const sql = `
+  INSERT INTO employees_employee (
+    company_id,
+    created_by_id,
+    public_id,
+    first_name,
+    personal_email,
+    phone,
+    date_of_birth,
+    gender,
+    blood_group,
+    marital_status,
+    national_id,
+    passport_number,
+    address,
+    emergency_contact_name,
+    emergency_contact_phone,
+    emergency_contact_relation,
+    joining_date,
+    confirmation_date,
+    employment_status,
+    photo,
+    metadata,
+    driving_lecense
+  )
+  VALUES (
+    ?,
+    ?,
+    ?,
+    ?,
+    ?,
+    ?,
+    ?,
+    ?,
+    ?,
+    ?,
+    ?,
+    ?,
+    ?,
+    ?,
+    ?,
+    ?,
+    ?,
+    ?,
+    ?,
+    ?,
+    ?,
+    ?
+  )
+`;
+      const [result] = await db.query(sql, values);
+
+      /* ======================================================
+         SUCCESS
+         ====================================================== */
+
+      return res.status(201).json({
+        success: true,
+        message: "Employee created successfully.",
+
+        employee: {
+          id: result.insertId,
+          employee_id: cleanEmployeeId,
+          public_id: cleanEmployeeId,
           company_id,
+          created_by_id,
+          photo,
+          driving_lecense: cleanDrivingLicense,
+        },
+      });
+    } catch (error) {
+      console.error("Create employee error:", error);
+
+      safeDeleteFile(req.file);
+
+      /* ======================================================
+         MULTER FILE SIZE ERROR
+         ====================================================== */
+
+      if (error.code === "LIMIT_FILE_SIZE") {
+        return res.status(400).json({
+          success: false,
+          message: "Employee photo must be smaller than 50 KB.",
+        });
+      }
+
+      /* ======================================================
+         INVALID FILE TYPE
+         ====================================================== */
+
+      if (
+        error.message ===
+        "Only JPG, JPEG, PNG and WEBP images are allowed."
+      ) {
+        return res.status(400).json({
+          success: false,
+          message: error.message,
+        });
+      }
+
+      /* ======================================================
+         DUPLICATE ENTRY
+         ====================================================== */
+
+      if (error.code === "ER_DUP_ENTRY") {
+        return res.status(409).json({
+          success: false,
+          message: "Employee ID already exists.",
+        });
+      }
+
+      /* ======================================================
+         DATA TOO LONG
+         ====================================================== */
+
+      if (error.code === "ER_DATA_TOO_LONG") {
+        return res.status(400).json({
+          success: false,
+          message: `One of the fields is too long: ${error.sqlMessage}`,
+        });
+      }
+
+      /* ======================================================
+         BAD NULL
+         ====================================================== */
+
+      if (error.code === "ER_BAD_NULL_ERROR") {
+        return res.status(400).json({
+          success: false,
+          message: `A required field is missing: ${error.sqlMessage}`,
+        });
+      }
+
+      /* ======================================================
+         INVALID DATE / VALUE
+         ====================================================== */
+
+      if (error.code === "ER_TRUNCATED_WRONG_VALUE") {
+        return res.status(400).json({
+          success: false,
+          message: `Invalid date or value supplied: ${error.sqlMessage}`,
+        });
+      }
+
+      /* ======================================================
+         GENERIC SERVER ERROR
+         ====================================================== */
+
+      return res.status(500).json({
+        success: false,
+        message: "Server error while creating employee.",
+        error: error.message,
+        code: error.code,
+        sqlMessage: error.sqlMessage,
+      });
+    }
+  },
+);
+
+/* ======================================================
+   GET EMPLOYEE LIST
+   Pagination
+   Only employees belonging to logged-in user's company
+   ====================================================== */
+
+router.get("/list-employees", async (req, res) => {
+  try {
+    const user = getUserFromCookie(req);
+
+    if (!user) {
+      return res.status(401).json({
+        success: false,
+        message: "User authentication cookie not found.",
+      });
+    }
+
+    const company_id = Number(user.company_id);
+
+    if (!company_id) {
+      return res.status(400).json({
+        success: false,
+        message: "Company ID is missing.",
+      });
+    }
+
+    /* -----------------------------
+       Pagination
+       ----------------------------- */
+
+    const page = Math.max(Number(req.query.page) || 1, 1);
+
+    const limit = Math.min(
+      Math.max(Number(req.query.limit) || 10, 1),
+      100,
+    );
+
+    const offset = (page - 1) * limit;
+
+    /* -----------------------------
+       Get total employee count
+       ----------------------------- */
+
+    const [[countResult]] = await db.query(
+      `
+        SELECT COUNT(*) AS total
+        FROM employees_employee
+        WHERE company_id = ?
+      `,
+      [company_id],
+    );
+
+    const total = Number(countResult.total);
+
+    /* -----------------------------
+       Get employees
+       ----------------------------- */
+
+    const [rows] = await db.query(
+      `
+        SELECT
+          id,
+          company_id,
+          package_id,
           created_by_id,
           updated_by_id,
           public_id,
           user_id,
           first_name,
-          middle_name,
-          last_name,
-          preferred_name,
-          work_email,
           personal_email,
           phone,
           date_of_birth,
@@ -330,59 +732,483 @@ router.post(
           emergency_contact_relation,
           joining_date,
           confirmation_date,
-          leaving_date,
           employment_status,
           photo,
-          metadata
-        )
-        VALUES (
-          ?,
-          ?,
-          NULL,
-          ?,
-          NULL,
-          ?,
-          '',
-          '',
-          '',
-          '',
-          ?,
-          ?,
-          ?,
-          ?,
-          ?,
-          ?,
-          ?,
-          ?,
-          ?,
-          ?,
-          ?,
-          ?,
-          ?,
-          ?,
-          NULL,
-          ?,
-          ?,
-          ?
-        )
-      `;
+          driving_lecense
+        FROM employees_employee
+        WHERE company_id = ?
+        ORDER BY id DESC
+        LIMIT ? OFFSET ?
+      `,
+      [company_id, limit, offset],
+    );
 
-      const [result] = await db.query(sql, values);
+    return res.status(200).json({
+      success: true,
+      employees: rows,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit),
+      },
+    });
+  } catch (error) {
+    console.error("Get employee list error:", error);
 
-      return res.status(201).json({
-        success: true,
-        message: "Employee created successfully.",
-        employee: {
-          id: result.insertId,
-          employee_id: cleanEmployeeId,
-          public_id: cleanEmployeeId,
+    return res.status(500).json({
+      success: false,
+      message: "Server error while fetching employees.",
+    });
+  }
+});
+
+
+/* ======================================================
+   GET SINGLE EMPLOYEE
+   Only employee from logged-in user's company
+   ====================================================== */
+
+router.get("/employee/:id", async (req, res) => {
+  try {
+    const user = getUserFromCookie(req);
+
+    if (!user) {
+      return res.status(401).json({
+        success: false,
+        message: "User authentication cookie not found.",
+      });
+    }
+
+    const company_id = Number(user.company_id);
+    const employeeId = Number(req.params.id);
+
+    if (!employeeId) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid employee ID.",
+      });
+    }
+
+    const [rows] = await db.query(
+      `
+        SELECT
+          id,
           company_id,
+          package_id,
           created_by_id,
+          updated_by_id,
+          public_id,
+          user_id,
+          first_name,
+          personal_email,
+          phone,
+          date_of_birth,
+          gender,
+          blood_group,
+          marital_status,
+          national_id,
+          passport_number,
+          address,
+          emergency_contact_name,
+          emergency_contact_phone,
+          emergency_contact_relation,
+          joining_date,
+          confirmation_date,
+          employment_status,
           photo,
-        },
+          driving_lecense
+        FROM employees_employee
+        WHERE id = ?
+          AND company_id = ?
+        LIMIT 1
+      `,
+      [employeeId, company_id],
+    );
+
+    if (rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "Employee not found.",
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      employee: rows[0],
+    });
+  } catch (error) {
+    console.error("Get single employee error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Server error while fetching employee.",
+    });
+  }
+});
+
+
+/* ======================================================
+   UPDATE EMPLOYEE
+   Company is taken from authentication cookie
+   ====================================================== */
+
+router.put(
+  "/update-employee/:id",
+  upload.single("photo"),
+  async (req, res) => {
+    try {
+      const user = getUserFromCookie(req);
+
+      if (!user) {
+        safeDeleteFile(req.file);
+
+        return res.status(401).json({
+          success: false,
+          message: "User authentication cookie not found.",
+        });
+      }
+
+      const company_id = Number(user.company_id);
+      const updated_by_id = Number(user.id);
+      const employeeId = Number(req.params.id);
+
+      if (!employeeId) {
+        safeDeleteFile(req.file);
+
+        return res.status(400).json({
+          success: false,
+          message: "Invalid employee ID.",
+        });
+      }
+
+      /* ==================================================
+         FIND EXISTING EMPLOYEE
+         ================================================== */
+
+      const [existingRows] = await db.query(
+        `
+          SELECT *
+          FROM employees_employee
+          WHERE id = ?
+            AND company_id = ?
+          LIMIT 1
+        `,
+        [employeeId, company_id],
+      );
+
+      if (existingRows.length === 0) {
+        safeDeleteFile(req.file);
+
+        return res.status(404).json({
+          success: false,
+          message: "Employee not found.",
+        });
+      }
+
+      const existingEmployee = existingRows[0];
+
+      /* ==================================================
+         GET FORM DATA
+         ================================================== */
+
+      const {
+        employee_id,
+        first_name,
+        personal_email,
+        phone,
+        date_of_birth,
+        gender,
+        blood_group,
+        marital_status,
+        national_id,
+        driving_lecense,
+        passport_number,
+        address,
+        emergency_contact_name,
+        emergency_contact_phone,
+        emergency_contact_relation,
+        joining_date,
+        confirmation_date,
+        employment_status,
+        package_id,
+      } = req.body;
+
+      /* ==================================================
+         REQUIRED VALIDATION
+         ================================================== */
+
+      const requiredFields = [
+        [employee_id, "Employee ID is required."],
+        [first_name, "First name is required."],
+        [personal_email, "Personal email is required."],
+        [phone, "Phone is required."],
+        [gender, "Gender is required."],
+        [blood_group, "Blood group is required."],
+        [marital_status, "Marital status is required."],
+        [national_id, "National ID is required."],
+        [address, "Address is required."],
+        [joining_date, "Joining date is required."],
+      ];
+
+      for (const [value, message] of requiredFields) {
+        if (
+          value === undefined ||
+          value === null ||
+          String(value).trim() === ""
+        ) {
+          safeDeleteFile(req.file);
+
+          return res.status(400).json({
+            success: false,
+            message,
+          });
+        }
+      }
+
+      const cleanEmployeeId = String(employee_id).trim();
+
+      /* ==================================================
+         NATIONAL ID
+         ================================================== */
+
+      const cleanNationalId = String(national_id).trim();
+
+      if (!/^\d{10,17}$/.test(cleanNationalId)) {
+        safeDeleteFile(req.file);
+
+        return res.status(400).json({
+          success: false,
+          message:
+            "National ID must contain only numbers and be 10 to 17 digits.",
+        });
+      }
+
+      /* ==================================================
+         DRIVING LICENSE
+         ================================================== */
+
+      const cleanDrivingLicense =
+        toNullableString(driving_lecense);
+
+      if (
+        cleanDrivingLicense &&
+        !/^\d{10,17}$/.test(cleanDrivingLicense)
+      ) {
+        safeDeleteFile(req.file);
+
+        return res.status(400).json({
+          success: false,
+          message:
+            "Driving License must contain only numbers and be 10 to 17 digits.",
+        });
+      }
+
+      /* ==================================================
+         PHONE
+         ================================================== */
+
+      const cleanPhone = String(phone).trim();
+
+      if (!/^\d{1,11}$/.test(cleanPhone)) {
+        safeDeleteFile(req.file);
+
+        return res.status(400).json({
+          success: false,
+          message:
+            "Phone number must contain only numbers and maximum 11 digits.",
+        });
+      }
+
+      /* ==================================================
+         EMERGENCY PHONE
+         ================================================== */
+
+      const cleanEmergencyPhone = toNullableString(
+        emergency_contact_phone,
+      );
+
+      if (
+        cleanEmergencyPhone &&
+        !/^\d{1,11}$/.test(cleanEmergencyPhone)
+      ) {
+        safeDeleteFile(req.file);
+
+        return res.status(400).json({
+          success: false,
+          message:
+            "Emergency contact phone must contain only numbers and maximum 11 digits.",
+        });
+      }
+
+      /* ==================================================
+         CHECK DUPLICATE EMPLOYEE ID
+         Same company
+         Exclude current employee
+         ================================================== */
+
+      const [duplicateEmployee] = await db.query(
+        `
+          SELECT id
+          FROM employees_employee
+          WHERE company_id = ?
+            AND public_id = ?
+            AND id != ?
+          LIMIT 1
+        `,
+        [
+          company_id,
+          cleanEmployeeId,
+          employeeId,
+        ],
+      );
+
+      if (duplicateEmployee.length > 0) {
+        safeDeleteFile(req.file);
+
+        return res.status(409).json({
+          success: false,
+          message: "Employee ID already exists.",
+        });
+      }
+
+      /* ==================================================
+         CHECK DUPLICATE EMAIL
+         Same company
+         Exclude current employee
+         ================================================== */
+
+      const cleanEmail = String(personal_email)
+        .trim()
+        .toLowerCase();
+
+      const [duplicateEmail] = await db.query(
+        `
+          SELECT id
+          FROM employees_employee
+          WHERE company_id = ?
+            AND LOWER(personal_email) = ?
+            AND id != ?
+          LIMIT 1
+        `,
+        [
+          company_id,
+          cleanEmail,
+          employeeId,
+        ],
+      );
+
+      if (duplicateEmail.length > 0) {
+        safeDeleteFile(req.file);
+
+        return res.status(409).json({
+          success: false,
+          message: "Personal email already exists.",
+        });
+      }
+
+      /* ==================================================
+         PHOTO
+         ================================================== */
+
+      let photo = existingEmployee.photo;
+
+      if (req.file) {
+        photo = req.file.filename;
+      }
+
+      /* ==================================================
+         UPDATE
+         ================================================== */
+
+      await db.query(
+        `
+          UPDATE employees_employee
+          SET
+            package_id = ?,
+            updated_by_id = ?,
+            public_id = ?,
+            first_name = ?,
+            personal_email = ?,
+            phone = ?,
+            date_of_birth = ?,
+            gender = ?,
+            blood_group = ?,
+            marital_status = ?,
+            national_id = ?,
+            passport_number = ?,
+            address = ?,
+            emergency_contact_name = ?,
+            emergency_contact_phone = ?,
+            emergency_contact_relation = ?,
+            joining_date = ?,
+            confirmation_date = ?,
+            employment_status = ?,
+            photo = ?,
+            driving_lecense = ?
+          WHERE id = ?
+            AND company_id = ?
+        `,
+        [
+          toNullableString(package_id),
+          updated_by_id,
+          cleanEmployeeId,
+          String(first_name).trim(),
+          cleanEmail,
+          cleanPhone,
+          toNullableDate(date_of_birth),
+          String(gender).trim(),
+          String(blood_group).trim(),
+          String(marital_status).trim(),
+          cleanNationalId,
+          toNullableString(passport_number),
+          String(address).trim(),
+          toNullableString(emergency_contact_name),
+          cleanEmergencyPhone,
+          toNullableString(emergency_contact_relation),
+          toNullableDate(joining_date),
+          toNullableDate(confirmation_date),
+          String(employment_status || "active").trim(),
+          photo,
+          cleanDrivingLicense,
+          employeeId,
+          company_id,
+        ],
+      );
+
+      /* ==================================================
+         DELETE OLD PHOTO
+         Only after successful database update
+         ================================================== */
+
+      if (
+        req.file &&
+        existingEmployee.photo &&
+        existingEmployee.photo !== req.file.filename
+      ) {
+        const oldPhotoPath = path.join(
+          uploadDirectory,
+          existingEmployee.photo,
+        );
+
+        try {
+          if (fs.existsSync(oldPhotoPath)) {
+            fs.unlinkSync(oldPhotoPath);
+          }
+        } catch (error) {
+          console.error(
+            "Could not delete old employee photo:",
+            error,
+          );
+        }
+      }
+
+      return res.status(200).json({
+        success: true,
+        message: "Employee updated successfully.",
       });
     } catch (error) {
-      console.error("Create employee error:", error);
+      console.error("Update employee error:", error);
 
       safeDeleteFile(req.file);
 
@@ -406,37 +1232,14 @@ router.post(
       if (error.code === "ER_DUP_ENTRY") {
         return res.status(409).json({
           success: false,
-          message: "Employee ID already exists.",
-        });
-      }
-
-      if (error.code === "ER_DATA_TOO_LONG") {
-        return res.status(400).json({
-          success: false,
-          message: `One of the fields is too long: ${error.sqlMessage}`,
-        });
-      }
-
-      if (error.code === "ER_BAD_NULL_ERROR") {
-        return res.status(400).json({
-          success: false,
-          message: `A required field is missing: ${error.sqlMessage}`,
-        });
-      }
-
-      if (error.code === "ER_TRUNCATED_WRONG_VALUE") {
-        return res.status(400).json({
-          success: false,
-          message: `Invalid date or value supplied: ${error.sqlMessage}`,
+          message: "Employee ID or Personal Email already exists.",
         });
       }
 
       return res.status(500).json({
         success: false,
-        message: "Server error while creating employee.",
+        message: "Server error while updating employee.",
         error: error.message,
-        code: error.code,
-        sqlMessage: error.sqlMessage,
       });
     }
   },

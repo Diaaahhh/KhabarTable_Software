@@ -1,8 +1,60 @@
 import express from "express";
 import db from "../db.js";
-
+import multer from "multer";
+import path from "path";
+import fs from "fs";
 const router = express.Router();
 
+// =========================================================
+// MULTER CONFIGURATION
+// =========================================================
+
+const uploadDir = path.join(process.cwd(), "uploads", "branches");
+
+if (!fs.existsSync(uploadDir)) {
+  fs.mkdirSync(uploadDir, { recursive: true });
+}
+
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    cb(null, uploadDir);
+  },
+
+  filename: (req, file, cb) => {
+    const extension = path.extname(file.originalname);
+
+    const filename = `branch-${Date.now()}-${Math.round(
+      Math.random() * 1e9
+    )}${extension}`;
+
+    cb(null, filename);
+  },
+});
+
+const upload = multer({
+  storage,
+
+  limits: {
+    fileSize: 50 * 1024,
+  },
+
+  fileFilter: (req, file, cb) => {
+    const allowedTypes = [
+      "image/jpeg",
+      "image/jpg",
+      "image/png",
+      "image/webp",
+    ];
+
+    if (!allowedTypes.includes(file.mimetype)) {
+      return cb(
+        new Error("Only JPG, JPEG, PNG and WEBP images are allowed.")
+      );
+    }
+
+    cb(null, true);
+  },
+});
 /*
   Get logged-in user information from cookie
 */
@@ -440,26 +492,28 @@ router.get("/:branchId", async (req, res) => {
     // ---------------------------------------------------------
 
     const [branchRows] = await db.query(
-      `
-      SELECT
-        b.id,
-        b.company_id,
-        b.company_name AS branch_name,
-        b.phone,
-        b.email,
-        b.address,
-        b.logo,
-        b.expiry_date,
-        b.created_at,
-        b.updated_at
-      FROM users AS b
-      WHERE b.id = ?
-        AND b.company_id = ?
-        AND b.role = 4
-      LIMIT 1
-      `,
-      [branchId, user.company_id]
-    );
+  `
+  SELECT
+    b.id,
+    b.company_id,
+    b.company_name AS branch_name,
+    b.name,
+    b.designation,
+    b.phone,
+    b.email,
+    b.address,
+    b.logo,
+    b.expiry_date,
+    b.created_at,
+    b.updated_at
+  FROM users AS b
+  WHERE b.id = ?
+    AND b.company_id = ?
+    AND b.role = 4
+  LIMIT 1
+  `,
+  [branchId, user.company_id]
+);
 
     // ---------------------------------------------------------
     // Branch not found
@@ -496,9 +550,15 @@ router.get("/:branchId", async (req, res) => {
 // PUT /api/branches/:branchId
 // =========================================================
 
-router.put("/:branchId", async (req, res) => {
+// =========================================================
+// UPDATE BRANCH
+// PUT /api/branches/:branchId
+// =========================================================
+router.put("/:branchId", upload.single("logo"), async (req, res) => {
   try {
+    // ---------------------------------------------------------
     // Get logged-in user
+    // ---------------------------------------------------------
     const user = getUserFromCookie(req);
 
     if (!user) {
@@ -508,6 +568,9 @@ router.put("/:branchId", async (req, res) => {
       });
     }
 
+    // ---------------------------------------------------------
+    // Validate branch ID
+    // ---------------------------------------------------------
     const branchId = Number(req.params.branchId);
 
     if (!Number.isInteger(branchId) || branchId <= 0) {
@@ -517,19 +580,23 @@ router.put("/:branchId", async (req, res) => {
       });
     }
 
+    // ---------------------------------------------------------
+    // Get form data
+    // ---------------------------------------------------------
     const {
-      branch_name,
-      phone,
+      branchName,
+      name,
       email,
-      address,
-      expiry_date,
+      phone,
+      password,
+      designation,
+      location,
     } = req.body;
 
     // ---------------------------------------------------------
-    // Validate required fields
+    // Validate branch name
     // ---------------------------------------------------------
-
-    if (!branch_name || !branch_name.trim()) {
+    if (!branchName || !branchName.trim()) {
       return res.status(400).json({
         success: false,
         message: "Branch name is required.",
@@ -537,13 +604,11 @@ router.put("/:branchId", async (req, res) => {
     }
 
     // ---------------------------------------------------------
-    // Check that branch belongs to logged-in user's company
-    // and is actually a branch
+    // Check branch belongs to logged-in user's company
     // ---------------------------------------------------------
-
     const [branchRows] = await db.query(
       `
-      SELECT id
+      SELECT id, logo
       FROM users
       WHERE id = ?
         AND company_id = ?
@@ -560,10 +625,11 @@ router.put("/:branchId", async (req, res) => {
       });
     }
 
+    const existingBranch = branchRows[0];
+
     // ---------------------------------------------------------
     // Check duplicate email
     // ---------------------------------------------------------
-
     if (email && email.trim()) {
       const [emailRows] = await db.query(
         `
@@ -579,57 +645,91 @@ router.put("/:branchId", async (req, res) => {
       if (emailRows.length > 0) {
         return res.status(409).json({
           success: false,
+          code: "EMAIL_EXISTS",
           message: "This email is already used by another user.",
         });
       }
     }
 
     // ---------------------------------------------------------
+    // Prepare update values
+    // ---------------------------------------------------------
+    const updateFields = [
+      "company_name = ?",
+      "name = ?",
+      "phone = ?",
+      "email = ?",
+      "designation = ?",
+      "address = ?",
+    ];
+
+    const updateValues = [
+      branchName.trim(),
+      name ? name.trim() : null,
+      phone ? phone.trim() : null,
+      email ? email.trim() : null,
+      designation ? designation.trim() : null,
+      location ? location.trim() : null,
+    ];
+
+    // ---------------------------------------------------------
+    // Password
+    // ---------------------------------------------------------
+    if (password && password.trim()) {
+      updateFields.push("password = ?");
+      updateValues.push(password.trim());
+    }
+
+    // ---------------------------------------------------------
+    // Logo
+    // ---------------------------------------------------------
+    if (req.file) {
+      const logoPath = `/uploads/branches/${req.file.filename}`;
+
+      updateFields.push("logo = ?");
+      updateValues.push(logoPath);
+    }
+
+    // ---------------------------------------------------------
+    // Branch ID + company ID
+    // ---------------------------------------------------------
+    updateValues.push(branchId);
+    updateValues.push(user.company_id);
+
+    // ---------------------------------------------------------
     // Update branch
     // ---------------------------------------------------------
-
     await db.query(
       `
       UPDATE users
       SET
-        company_name = ?,
-        phone = ?,
-        email = ?,
-        address = ?,
-        expiry_date = ?
+        ${updateFields.join(", ")}
       WHERE id = ?
         AND company_id = ?
         AND role = 4
       `,
-      [
-        branch_name.trim(),
-        phone ? phone.trim() : null,
-        email ? email.trim() : null,
-        address ? address.trim() : null,
-        expiry_date || null,
-        branchId,
-        user.company_id,
-      ]
+      updateValues
     );
 
     // ---------------------------------------------------------
     // Get updated branch
     // ---------------------------------------------------------
-
     const [updatedRows] = await db.query(
       `
       SELECT
         b.id,
         b.company_id,
         b.company_name AS branch_name,
+        b.name,
+        b.designation,
         b.phone,
         b.email,
         b.address,
         b.logo,
         b.expiry_date,
-        creator.email AS created_by,
         b.created_at,
-        b.updated_at
+        b.updated_at,
+        creator.email AS created_by
       FROM users AS b
       LEFT JOIN users AS creator
         ON creator.id = b.created_by

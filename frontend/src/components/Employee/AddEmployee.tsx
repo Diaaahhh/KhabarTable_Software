@@ -416,6 +416,7 @@ const AddEmployee = () => {
     blood_group: "",
     marital_status: "",
     national_id: "",
+    driving_lecense: "",
     passport_number: "",
     address: "",
     emergency_contact_name: "",
@@ -438,7 +439,8 @@ const AddEmployee = () => {
 
   // Debounce timer for employee_id duplicate check
   const employeeIdDuplicateTimerRef = useRef(null);
-
+  const emailDuplicateTimerRef = useRef(null);
+  const validationTimerRef = useRef(null);
   // Form ref so we can safely reset the form
   const formRef = useRef(null);
 
@@ -451,6 +453,14 @@ const AddEmployee = () => {
       if (employeeIdDuplicateTimerRef.current) {
         clearTimeout(employeeIdDuplicateTimerRef.current);
       }
+
+      if (emailDuplicateTimerRef.current) {
+        clearTimeout(emailDuplicateTimerRef.current);
+      }
+
+      if (validationTimerRef.current) {
+        clearTimeout(validationTimerRef.current);
+      }
     };
   }, []);
 
@@ -459,57 +469,162 @@ const AddEmployee = () => {
      Mirrors the CompanyRegistration pattern exactly.
      ========================================================= */
 
-  const checkDuplicateOnServer = async (value) => {
-  try {
-    console.log("Checking employee ID:", value);
+  const checkEmailDuplicateOnServer = async (value) => {
+    const email = value.trim();
 
-    const response = await fetch(
-      `${API_BASE_URL}/api/employees/check-employee-id`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        credentials: "include",
-        body: JSON.stringify({
-          employee_id: value.trim(),
-        }),
-      },
-    );
-
-    const data = await response.json();
-
-    console.log("Duplicate check response:", response.status, data);
-
-    if (!response.ok) {
-      setErrors((prev) => ({
-        ...prev,
-        employee_id:
-          data.message || "Unable to check Employee ID.",
-      }));
+    if (!email) {
       return;
     }
 
-    if (data.exists) {
+    try {
+      console.log("Checking personal email:", email);
+
+      const response = await fetch(
+        `${API_BASE_URL}/api/employees/check-email`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          credentials: "include",
+          body: JSON.stringify({
+            personal_email: email,
+          }),
+        },
+      );
+
+      const data = await response.json();
+
+      console.log("Email duplicate response:", response.status, data);
+
+      if (!response.ok) {
+        setErrors((prev) => ({
+          ...prev,
+          personal_email: data.message || "Unable to check Personal Email.",
+        }));
+        return;
+      }
+
+      if (data.exists) {
+        setErrors((prev) => ({
+          ...prev,
+          personal_email: "This email already exists.",
+        }));
+      } else {
+        setErrors((prev) => ({
+          ...prev,
+          personal_email: "",
+        }));
+      }
+    } catch (error) {
+      console.error("Failed to check personal email:", error);
+
       setErrors((prev) => ({
         ...prev,
-        employee_id: "This Employee ID already exists.",
-      }));
-    } else {
-      setErrors((prev) => ({
-        ...prev,
-        employee_id: "",
+        personal_email: "Unable to check Personal Email.",
       }));
     }
-  } catch (error) {
-    console.error("Failed to check duplicate employee ID:", error);
+  };
+  const validateField = (name, value) => {
+    const fieldValue = String(value ?? "").trim();
+
+    let message = "";
+
+    switch (name) {
+      case "employee_id":
+        if (!fieldValue) {
+          message = "Employee ID is required.";
+        }
+        break;
+
+      case "first_name":
+        if (!fieldValue) {
+          message = "First name is required.";
+        }
+        break;
+
+      case "personal_email":
+        if (!fieldValue) {
+          message = "Personal email is required.";
+        } else if (!isValidEmail(fieldValue)) {
+          message = "Enter a valid email address.";
+        }
+        break;
+
+      case "phone":
+        if (!fieldValue) {
+          message = "Phone number is required.";
+        } else if (!/^\d{11}$/.test(fieldValue)) {
+          message = "Phone number must be exactly 11 digits.";
+        }
+        break;
+
+      case "date_of_birth":
+        if (!fieldValue) {
+          message = "Date of birth is required.";
+        }
+        break;
+
+      case "gender":
+        if (!fieldValue) {
+          message = "Please select gender.";
+        }
+        break;
+
+      case "blood_group":
+        if (!fieldValue) {
+          message = "Please select blood group.";
+        }
+        break;
+
+      case "marital_status":
+        if (!fieldValue) {
+          message = "Please select marital status.";
+        }
+        break;
+
+      case "national_id":
+        if (!fieldValue) {
+          message = "National ID is required.";
+        } else if (!/^\d{10,17}$/.test(fieldValue)) {
+          message =
+            "National ID must contain only numbers and be 10 to 17 digits.";
+        }
+        break;
+
+      case "driving_lecense":
+        if (fieldValue && !/^\d+$/.test(fieldValue)) {
+          message = "Driving License must contain only numbers.";
+        }
+        break;
+
+      case "address":
+        if (!fieldValue) {
+          message = "Address is required.";
+        }
+        break;
+
+      case "emergency_contact_phone":
+        if (fieldValue && !/^\d{11}$/.test(fieldValue)) {
+          message = "Emergency contact phone must be exactly 11 digits.";
+        }
+        break;
+
+      case "joining_date":
+        if (!fieldValue) {
+          message = "Joining date is required.";
+        }
+        break;
+
+      default:
+        break;
+    }
 
     setErrors((prev) => ({
       ...prev,
-      employee_id: "Unable to check Employee ID.",
+      [name]: message,
     }));
-  }
-};
+  };
 
   /* =========================================================
      HANDLE INPUT
@@ -523,14 +638,97 @@ const AddEmployee = () => {
       [name]: value,
     }));
 
-    if (errors[name]) {
+    // Clear existing error while user is typing
+    setErrors((prev) => ({
+      ...prev,
+      [name]: "",
+    }));
+
+    // Clear previous validation timer
+    if (validationTimerRef.current) {
+      clearTimeout(validationTimerRef.current);
+    }
+
+    // Clear previous email duplicate timer
+    if (name === "personal_email") {
+      if (emailDuplicateTimerRef.current) {
+        clearTimeout(emailDuplicateTimerRef.current);
+      }
+    }
+
+    // Wait 2 seconds after the user stops typing
+    validationTimerRef.current = setTimeout(() => {
+      validateField(name, value);
+
+      // Email duplicate check
+      if (
+        name === "personal_email" &&
+        value.trim() &&
+        isValidEmail(value.trim())
+      ) {
+        emailDuplicateTimerRef.current = setTimeout(() => {
+          checkEmailDuplicateOnServer(value.trim());
+        }, 0);
+      }
+    }, 2000);
+  };
+
+  const checkDuplicateOnServer = async (value) => {
+    const employeeId = value.trim();
+
+    if (!employeeId) {
+      return;
+    }
+
+    try {
+      console.log("Checking Employee ID:", employeeId);
+
+      const response = await fetch(
+        `${API_BASE_URL}/api/employees/check-employee-id`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          credentials: "include",
+          body: JSON.stringify({
+            employee_id: employeeId,
+          }),
+        },
+      );
+
+      const data = await response.json();
+
+      console.log("Employee ID duplicate response:", response.status, data);
+
+      if (!response.ok) {
+        setErrors((prev) => ({
+          ...prev,
+          employee_id: data.message || "Unable to check Employee ID.",
+        }));
+        return;
+      }
+
+      if (data.exists) {
+        setErrors((prev) => ({
+          ...prev,
+          employee_id: "This Employee ID already exists.",
+        }));
+      } else {
+        setErrors((prev) => ({
+          ...prev,
+          employee_id: "",
+        }));
+      }
+    } catch (error) {
+      console.error("Failed to check Employee ID:", error);
+
       setErrors((prev) => ({
         ...prev,
-        [name]: "",
+        employee_id: "Unable to check Employee ID.",
       }));
     }
   };
-
   /* =========================================================
      HANDLE EMPLOYEE ID CHANGE (with debounced duplicate check)
      ========================================================= */
@@ -573,7 +771,7 @@ const AddEmployee = () => {
   const handleNameChange = (e) => {
     const { name, value } = e.target;
 
-const filteredValue = value.replace(/[^A-Za-z\s.'-]/g, "");
+    const filteredValue = value.replace(/[^A-Za-z\s.'-]/g, "");
 
     setFormData((prev) => ({
       ...prev,
@@ -599,17 +797,25 @@ const filteredValue = value.replace(/[^A-Za-z\s.'-]/g, "");
       value = value.slice(0, maxLength);
     }
 
+    const fieldName = e.target.name;
+
     setFormData((prev) => ({
       ...prev,
-      [e.target.name]: value,
+      [fieldName]: value,
     }));
 
-    if (errors[e.target.name]) {
-      setErrors((prev) => ({
-        ...prev,
-        [e.target.name]: "",
-      }));
+    setErrors((prev) => ({
+      ...prev,
+      [fieldName]: "",
+    }));
+
+    if (validationTimerRef.current) {
+      clearTimeout(validationTimerRef.current);
     }
+
+    validationTimerRef.current = setTimeout(() => {
+      validateField(fieldName, value);
+    }, 2000);
   };
 
   /* =========================================================
@@ -769,8 +975,8 @@ const filteredValue = value.replace(/[^A-Za-z\s.'-]/g, "");
 
     if (!formData.phone.trim()) {
       newErrors.phone = "Phone number is required.";
-    } else if (formData.phone.length > 11) {
-      newErrors.phone = "Phone number cannot exceed 11 digits.";
+    } else if (!/^\d{11}$/.test(formData.phone)) {
+      newErrors.phone = "Phone number must be exactly 11 digits.";
     }
 
     if (!formData.date_of_birth) {
@@ -791,6 +997,13 @@ const filteredValue = value.replace(/[^A-Za-z\s.'-]/g, "");
 
     if (!formData.national_id.trim()) {
       newErrors.national_id = "National ID is required.";
+    } else if (!/^\d{10,17}$/.test(formData.national_id)) {
+      newErrors.national_id =
+        "National ID must contain only numbers and be 10 to 17 digits.";
+    }
+
+    if (formData.driving_lecense && !/^\d+$/.test(formData.driving_lecense)) {
+      newErrors.driving_lecense = "Driving License must contain only numbers.";
     }
 
     if (!formData.address.trim()) {
@@ -799,10 +1012,10 @@ const filteredValue = value.replace(/[^A-Za-z\s.'-]/g, "");
 
     if (
       formData.emergency_contact_phone &&
-      formData.emergency_contact_phone.length > 11
+      !/^\d{11}$/.test(formData.emergency_contact_phone)
     ) {
       newErrors.emergency_contact_phone =
-        "Emergency contact phone cannot exceed 11 digits.";
+        "Emergency contact phone must be exactly 11 digits.";
     }
 
     if (!formData.joining_date) {
@@ -825,7 +1038,13 @@ const filteredValue = value.replace(/[^A-Za-z\s.'-]/g, "");
     });
 
     const validationErrors = validateForm();
+    if (errors.employee_id === "This Employee ID already exists.") {
+      validationErrors.employee_id = errors.employee_id;
+    }
 
+    if (errors.personal_email === "This email already exists.") {
+      validationErrors.personal_email = errors.personal_email;
+    }
     // Preserve any existing duplicate error from the real-time check
     if (
       errors.employee_id &&
@@ -912,6 +1131,7 @@ const filteredValue = value.replace(/[^A-Za-z\s.'-]/g, "");
         blood_group: "",
         marital_status: "",
         national_id: "",
+        driving_lecense: "",
         passport_number: "",
         address: "",
         emergency_contact_name: "",
@@ -1052,7 +1272,7 @@ const filteredValue = value.replace(/[^A-Za-z\s.'-]/g, "");
               {/* First Name */}
               <div>
                 <label className={labelStyle}>
-                  First Name <span className="text-danger">*</span>
+                  Full Name <span className="text-danger">*</span>
                 </label>
 
                 <input
@@ -1141,9 +1361,6 @@ const filteredValue = value.replace(/[^A-Za-z\s.'-]/g, "");
                   <p className={errorStyle}>{errors.marital_status}</p>
                 )}
               </div>
-
-              {/* Date of Birth */}
-              <DateField label="Date of Birth" name="date_of_birth" required />
             </div>
           </section>
 
@@ -1216,13 +1433,47 @@ const filteredValue = value.replace(/[^A-Za-z\s.'-]/g, "");
                   inputMode="numeric"
                   name="national_id"
                   value={formData.national_id}
-                  onChange={(e) => handleNumberChange(e)}
+                  onChange={(e) => handleNumberChange(e, 17)}
                   placeholder="Enter National ID"
+                  maxLength={17}
                   className={inputStyle}
                 />
 
+                <p className="mt-1 text-xs text-text-muted">
+                  Numbers only • 10–17 digits
+                </p>
+
                 {errors.national_id && (
                   <p className={errorStyle}>{errors.national_id}</p>
+                )}
+              </div>
+
+              {/* Date of Birth */}
+              <DateField label="Date of Birth" name="date_of_birth" required />
+
+              {/* Driving License */}
+              <div>
+                <label className={labelStyle}>
+                  Driving License{" "}
+                  <span className="font-normal text-text-muted">
+                    (Optional)
+                  </span>
+                </label>
+
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  name="driving_lecense"
+                  value={formData.driving_lecense}
+                  onChange={(e) => handleNumberChange(e)}
+                  placeholder="Enter driving license number"
+                  className={inputStyle}
+                />
+
+                <p className="mt-1 text-xs text-text-muted">Numbers only</p>
+
+                {errors.driving_lecense && (
+                  <p className={errorStyle}>{errors.driving_lecense}</p>
                 )}
               </div>
 
@@ -1247,7 +1498,7 @@ const filteredValue = value.replace(/[^A-Za-z\s.'-]/g, "");
               </div>
 
               {/* Address */}
-              <div className="md:col-span-2">
+              <div>
                 <label className={labelStyle}>
                   Address <span className="text-danger">*</span>
                 </label>
@@ -1291,9 +1542,7 @@ const filteredValue = value.replace(/[^A-Za-z\s.'-]/g, "");
               <div>
                 <label className={labelStyle}>
                   Contact Name{" "}
-                  <span className="font-normal text-text-muted">
-                    (Optional)
-                  </span>
+                  
                 </label>
 
                 <input
@@ -1310,9 +1559,7 @@ const filteredValue = value.replace(/[^A-Za-z\s.'-]/g, "");
               <div>
                 <label className={labelStyle}>
                   Contact Phone{" "}
-                  <span className="font-normal text-text-muted">
-                    (Optional)
-                  </span>
+                  
                 </label>
 
                 <input
@@ -1340,14 +1587,19 @@ const filteredValue = value.replace(/[^A-Za-z\s.'-]/g, "");
                   </span>
                 </label>
 
-                <input
-                  type="text"
+                <select
                   name="emergency_contact_relation"
                   value={formData.emergency_contact_relation}
                   onChange={handleChange}
-                  placeholder="e.g. Father, Mother, Spouse"
                   className={inputStyle}
-                />
+                >
+                  <option value="">Select relation</option>
+                  <option value="Father">Father</option>
+                  <option value="Mother">Mother</option>
+                  <option value="Spouse">Spouse</option>
+                  <option value="Siblings">Siblings</option>
+                  <option value="Grand Parents">Grand Parents</option>
+                </select>
               </div>
             </div>
           </section>
