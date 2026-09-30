@@ -573,7 +573,7 @@ const AddEmployee = () => {
   const handleNameChange = (e) => {
     const { name, value } = e.target;
 
-    const filteredValue = value.replace(/[^A-Za-z\s]/g, "");
+const filteredValue = value.replace(/[^A-Za-z\s.'-]/g, "");
 
     setFormData((prev) => ({
       ...prev,
@@ -758,7 +758,7 @@ const AddEmployee = () => {
     }
 
     if (!formData.first_name.trim()) {
-      newErrors.first_name = "Full name is required.";
+      newErrors.first_name = "First name is required.";
     }
 
     if (!formData.personal_email.trim()) {
@@ -1049,7 +1049,7 @@ const AddEmployee = () => {
                 )}
               </div>
 
-              {/* Full Name */}
+              {/* First Name */}
               <div>
                 <label className={labelStyle}>
                   First Name <span className="text-danger">*</span>
@@ -1057,7 +1057,7 @@ const AddEmployee = () => {
 
                 <input
                   type="text"
-                  name="full_name"
+                  name="first_name"
                   value={formData.first_name}
                   onChange={handleNameChange}
                   placeholder="Enter first name"
