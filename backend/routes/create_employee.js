@@ -129,6 +129,39 @@ function toNullableDate(value) {
 }
 
 /* ======================================================
+   GET DESIGNATIONS
+   Used by the Add Employee form dropdown
+   ====================================================== */
+
+router.get("/designations", async (req, res) => {
+  try {
+    const [rows] = await db.query(
+      `
+        SELECT
+          id,
+          code,
+          name
+        FROM organization_designation
+        WHERE status = 'active'
+        ORDER BY name ASC
+      `,
+    );
+
+    return res.status(200).json({
+      success: true,
+      data: rows,
+    });
+  } catch (error) {
+    console.error("Failed to fetch designations:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Failed to fetch designations.",
+    });
+  }
+});
+
+/* ======================================================
    CHECK DUPLICATE EMPLOYEE ID
    Duplicate only when BOTH:
    company_id + public_id match
@@ -189,6 +222,7 @@ router.post("/check-employee-id", async (req, res) => {
     });
   }
 });
+
 /* =========================================================
    CHECK DUPLICATE PERSONAL EMAIL
    ========================================================= */
@@ -250,6 +284,7 @@ router.post("/check-email", async (req, res) => {
     });
   }
 });
+
 /* ======================================================
    CREATE EMPLOYEE
    ====================================================== */
@@ -259,10 +294,6 @@ router.post(
   upload.single("photo"),
   async (req, res) => {
     try {
-      /* ======================================================
-         AUTHENTICATION
-         ====================================================== */
-
       const user = getUserFromCookie(req);
 
       if (!user) {
@@ -276,10 +307,6 @@ router.post(
 
       const company_id = user.company_id;
       const created_by_id = user.id;
-
-      /* ======================================================
-         GET FORM DATA
-         ====================================================== */
 
       const {
         employee_id,
@@ -300,11 +327,8 @@ router.post(
         joining_date,
         confirmation_date,
         employment_status,
+        designation_id,
       } = req.body;
-
-      /* ======================================================
-         REQUIRED FIELD VALIDATION
-         ====================================================== */
 
       const requiredFields = [
         [employee_id, "Employee ID is required."],
@@ -317,6 +341,7 @@ router.post(
         [national_id, "National ID is required."],
         [address, "Address is required."],
         [joining_date, "Joining date is required."],
+        [designation_id, "Designation is required."],
       ];
 
       for (const [value, message] of requiredFields) {
@@ -334,10 +359,6 @@ router.post(
         }
       }
 
-      /* ======================================================
-         EMPLOYEE ID
-         ====================================================== */
-
       const cleanEmployeeId = toNullableString(employee_id);
 
       if (!cleanEmployeeId) {
@@ -349,12 +370,43 @@ router.post(
         });
       }
 
-      /* ======================================================
-         NATIONAL ID VALIDATION
-         Required
-         Numbers only
-         10–17 digits
-         ====================================================== */
+      /* Designation validation */
+
+      const cleanDesignationId = Number(designation_id);
+
+      if (
+        !Number.isInteger(cleanDesignationId) ||
+        cleanDesignationId < 1
+      ) {
+        safeDeleteFile(req.file);
+
+        return res.status(400).json({
+          success: false,
+          message: "Designation is required.",
+        });
+      }
+
+      const [designationRows] = await db.query(
+        `
+          SELECT id
+          FROM organization_designation
+          WHERE id = ?
+            AND status = 'active'
+          LIMIT 1
+        `,
+        [cleanDesignationId],
+      );
+
+      if (designationRows.length === 0) {
+        safeDeleteFile(req.file);
+
+        return res.status(400).json({
+          success: false,
+          message: "Selected designation does not exist.",
+        });
+      }
+
+      /* National ID */
 
       const cleanNationalId = String(national_id).trim();
 
@@ -368,12 +420,7 @@ router.post(
         });
       }
 
-      /* ======================================================
-         DRIVING LICENSE VALIDATION
-         Optional
-         Numbers only
-         10–17 digits if provided
-         ====================================================== */
+      /* Driving License */
 
       const cleanDrivingLicense = toNullableString(driving_lecense);
 
@@ -390,11 +437,7 @@ router.post(
         });
       }
 
-      /* ======================================================
-         PHONE VALIDATION
-         Numbers only
-         Maximum 11 digits
-         ====================================================== */
+      /* Phone */
 
       const cleanPhone = String(phone).trim();
 
@@ -403,15 +446,12 @@ router.post(
 
         return res.status(400).json({
           success: false,
-          message: "Phone number must contain only numbers and maximum 11 digits.",
+          message:
+            "Phone number must contain only numbers and maximum 11 digits.",
         });
       }
 
-      /* ======================================================
-         EMERGENCY PHONE VALIDATION
-         Optional
-         Maximum 11 digits
-         ====================================================== */
+      /* Emergency Phone */
 
       const cleanEmergencyPhone = toNullableString(
         emergency_contact_phone,
@@ -430,10 +470,7 @@ router.post(
         });
       }
 
-      /* ======================================================
-         CHECK DUPLICATE EMPLOYEE ID
-         Same company only
-         ====================================================== */
+      /* Duplicate employee ID */
 
       const [existingEmployee] = await db.query(
         `
@@ -455,96 +492,88 @@ router.post(
         });
       }
 
-      /* ======================================================
-         PHOTO
-         ====================================================== */
-
       const photo = req.file ? req.file.filename : null;
 
-      /* ======================================================
-         INSERT VALUES
-         ====================================================== */
-
       const values = [
-  company_id,
-  created_by_id,
-  cleanEmployeeId,
-  String(first_name).trim(),
-  String(personal_email).trim(),
-  cleanPhone,
-  toNullableDate(date_of_birth),
-  String(gender).trim(),
-  String(blood_group).trim(),
-  String(marital_status).trim(),
-  cleanNationalId,
-  toNullableString(passport_number),
-  String(address).trim(),
-  toNullableString(emergency_contact_name),
-  cleanEmergencyPhone,
-  toNullableString(emergency_contact_relation),
-  toNullableDate(joining_date),
-  toNullableDate(confirmation_date),
-  String(employment_status || "active").trim(),
-  photo,
-  JSON.stringify({}),
-  cleanDrivingLicense,
-];
+        company_id,
+        created_by_id,
+        cleanEmployeeId,
+        String(first_name).trim(),
+        String(personal_email).trim(),
+        cleanPhone,
+        toNullableDate(date_of_birth),
+        String(gender).trim(),
+        String(blood_group).trim(),
+        String(marital_status).trim(),
+        cleanNationalId,
+        toNullableString(passport_number),
+        String(address).trim(),
+        toNullableString(emergency_contact_name),
+        cleanEmergencyPhone,
+        toNullableString(emergency_contact_relation),
+        toNullableDate(joining_date),
+        toNullableDate(confirmation_date),
+        String(employment_status || "active").trim(),
+        photo,
+        JSON.stringify({}),
+        cleanDrivingLicense,
+        cleanDesignationId,
+      ];
 
-const sql = `
-  INSERT INTO employees_employee (
-    company_id,
-    created_by_id,
-    public_id,
-    first_name,
-    personal_email,
-    phone,
-    date_of_birth,
-    gender,
-    blood_group,
-    marital_status,
-    national_id,
-    passport_number,
-    address,
-    emergency_contact_name,
-    emergency_contact_phone,
-    emergency_contact_relation,
-    joining_date,
-    confirmation_date,
-    employment_status,
-    photo,
-    metadata,
-    driving_lecense
-  )
-  VALUES (
-    ?,
-    ?,
-    ?,
-    ?,
-    ?,
-    ?,
-    ?,
-    ?,
-    ?,
-    ?,
-    ?,
-    ?,
-    ?,
-    ?,
-    ?,
-    ?,
-    ?,
-    ?,
-    ?,
-    ?,
-    ?,
-    ?
-  )
-`;
+      const sql = `
+        INSERT INTO employees_employee (
+          company_id,
+          created_by_id,
+          public_id,
+          first_name,
+          personal_email,
+          phone,
+          date_of_birth,
+          gender,
+          blood_group,
+          marital_status,
+          national_id,
+          passport_number,
+          address,
+          emergency_contact_name,
+          emergency_contact_phone,
+          emergency_contact_relation,
+          joining_date,
+          confirmation_date,
+          employment_status,
+          photo,
+          metadata,
+          driving_lecense,
+          designation_id
+        )
+        VALUES (
+          ?,
+          ?,
+          ?,
+          ?,
+          ?,
+          ?,
+          ?,
+          ?,
+          ?,
+          ?,
+          ?,
+          ?,
+          ?,
+          ?,
+          ?,
+          ?,
+          ?,
+          ?,
+          ?,
+          ?,
+          ?,
+          ?,
+          ?
+        )
+      `;
+
       const [result] = await db.query(sql, values);
-
-      /* ======================================================
-         SUCCESS
-         ====================================================== */
 
       return res.status(201).json({
         success: true,
@@ -558,6 +587,7 @@ const sql = `
           created_by_id,
           photo,
           driving_lecense: cleanDrivingLicense,
+          designation_id: cleanDesignationId,
         },
       });
     } catch (error) {
@@ -565,20 +595,12 @@ const sql = `
 
       safeDeleteFile(req.file);
 
-      /* ======================================================
-         MULTER FILE SIZE ERROR
-         ====================================================== */
-
       if (error.code === "LIMIT_FILE_SIZE") {
         return res.status(400).json({
           success: false,
           message: "Employee photo must be smaller than 50 KB.",
         });
       }
-
-      /* ======================================================
-         INVALID FILE TYPE
-         ====================================================== */
 
       if (
         error.message ===
@@ -590,20 +612,12 @@ const sql = `
         });
       }
 
-      /* ======================================================
-         DUPLICATE ENTRY
-         ====================================================== */
-
       if (error.code === "ER_DUP_ENTRY") {
         return res.status(409).json({
           success: false,
           message: "Employee ID already exists.",
         });
       }
-
-      /* ======================================================
-         DATA TOO LONG
-         ====================================================== */
 
       if (error.code === "ER_DATA_TOO_LONG") {
         return res.status(400).json({
@@ -612,10 +626,6 @@ const sql = `
         });
       }
 
-      /* ======================================================
-         BAD NULL
-         ====================================================== */
-
       if (error.code === "ER_BAD_NULL_ERROR") {
         return res.status(400).json({
           success: false,
@@ -623,20 +633,12 @@ const sql = `
         });
       }
 
-      /* ======================================================
-         INVALID DATE / VALUE
-         ====================================================== */
-
       if (error.code === "ER_TRUNCATED_WRONG_VALUE") {
         return res.status(400).json({
           success: false,
           message: `Invalid date or value supplied: ${error.sqlMessage}`,
         });
       }
-
-      /* ======================================================
-         GENERIC SERVER ERROR
-         ====================================================== */
 
       return res.status(500).json({
         success: false,
@@ -651,8 +653,6 @@ const sql = `
 
 /* ======================================================
    GET EMPLOYEE LIST
-   Pagination
-   Only employees belonging to logged-in user's company
    ====================================================== */
 
 router.get("/list-employees", async (req, res) => {
@@ -675,10 +675,6 @@ router.get("/list-employees", async (req, res) => {
       });
     }
 
-    /* -----------------------------
-       Pagination
-       ----------------------------- */
-
     const page = Math.max(Number(req.query.page) || 1, 1);
 
     const limit = Math.min(
@@ -687,10 +683,6 @@ router.get("/list-employees", async (req, res) => {
     );
 
     const offset = (page - 1) * limit;
-
-    /* -----------------------------
-       Get total employee count
-       ----------------------------- */
 
     const [[countResult]] = await db.query(
       `
@@ -703,41 +695,41 @@ router.get("/list-employees", async (req, res) => {
 
     const total = Number(countResult.total);
 
-    /* -----------------------------
-       Get employees
-       ----------------------------- */
-
     const [rows] = await db.query(
       `
         SELECT
-          id,
-          company_id,
-          package_id,
-          created_by_id,
-          updated_by_id,
-          public_id,
-          user_id,
-          first_name,
-          personal_email,
-          phone,
-          date_of_birth,
-          gender,
-          blood_group,
-          marital_status,
-          national_id,
-          passport_number,
-          address,
-          emergency_contact_name,
-          emergency_contact_phone,
-          emergency_contact_relation,
-          joining_date,
-          confirmation_date,
-          employment_status,
-          photo,
-          driving_lecense
-        FROM employees_employee
-        WHERE company_id = ?
-        ORDER BY id DESC
+          e.id,
+          e.company_id,
+          e.package_id,
+          e.created_by_id,
+          e.updated_by_id,
+          e.public_id,
+          e.user_id,
+          e.first_name,
+          e.personal_email,
+          e.phone,
+          e.date_of_birth,
+          e.gender,
+          e.blood_group,
+          e.marital_status,
+          e.national_id,
+          e.passport_number,
+          e.address,
+          e.emergency_contact_name,
+          e.emergency_contact_phone,
+          e.emergency_contact_relation,
+          e.joining_date,
+          e.confirmation_date,
+          e.employment_status,
+          e.photo,
+          e.driving_lecense,
+          e.designation_id,
+          d.name AS designation_name
+        FROM employees_employee e
+        LEFT JOIN organization_designation d
+          ON d.id = e.designation_id
+        WHERE e.company_id = ?
+        ORDER BY e.id DESC
         LIMIT ? OFFSET ?
       `,
       [company_id, limit, offset],
@@ -763,10 +755,8 @@ router.get("/list-employees", async (req, res) => {
   }
 });
 
-
 /* ======================================================
    GET SINGLE EMPLOYEE
-   Only employee from logged-in user's company
    ====================================================== */
 
 router.get("/employee/:id", async (req, res) => {
@@ -817,7 +807,8 @@ router.get("/employee/:id", async (req, res) => {
           confirmation_date,
           employment_status,
           photo,
-          driving_lecense
+          driving_lecense,
+          designation_id
         FROM employees_employee
         WHERE id = ?
           AND company_id = ?
@@ -847,10 +838,8 @@ router.get("/employee/:id", async (req, res) => {
   }
 });
 
-
 /* ======================================================
    UPDATE EMPLOYEE
-   Company is taken from authentication cookie
    ====================================================== */
 
 router.put(
@@ -882,10 +871,6 @@ router.put(
         });
       }
 
-      /* ==================================================
-         FIND EXISTING EMPLOYEE
-         ================================================== */
-
       const [existingRows] = await db.query(
         `
           SELECT *
@@ -908,10 +893,6 @@ router.put(
 
       const existingEmployee = existingRows[0];
 
-      /* ==================================================
-         GET FORM DATA
-         ================================================== */
-
       const {
         employee_id,
         first_name,
@@ -932,11 +913,8 @@ router.put(
         confirmation_date,
         employment_status,
         package_id,
+        designation_id,
       } = req.body;
-
-      /* ==================================================
-         REQUIRED VALIDATION
-         ================================================== */
 
       const requiredFields = [
         [employee_id, "Employee ID is required."],
@@ -949,6 +927,7 @@ router.put(
         [national_id, "National ID is required."],
         [address, "Address is required."],
         [joining_date, "Joining date is required."],
+        [designation_id, "Designation is required."],
       ];
 
       for (const [value, message] of requiredFields) {
@@ -968,9 +947,41 @@ router.put(
 
       const cleanEmployeeId = String(employee_id).trim();
 
-      /* ==================================================
-         NATIONAL ID
-         ================================================== */
+      /* Designation */
+
+      const cleanDesignationId = Number(designation_id);
+
+      if (
+        !Number.isInteger(cleanDesignationId) ||
+        cleanDesignationId < 1
+      ) {
+        safeDeleteFile(req.file);
+
+        return res.status(400).json({
+          success: false,
+          message: "Designation is required.",
+        });
+      }
+
+      const [designationRows] = await db.query(
+        `
+          SELECT id
+          FROM organization_designation
+          WHERE id = ?
+            AND status = 'active'
+          LIMIT 1
+        `,
+        [cleanDesignationId],
+      );
+
+      if (designationRows.length === 0) {
+        safeDeleteFile(req.file);
+
+        return res.status(400).json({
+          success: false,
+          message: "Selected designation does not exist.",
+        });
+      }
 
       const cleanNationalId = String(national_id).trim();
 
@@ -984,12 +995,7 @@ router.put(
         });
       }
 
-      /* ==================================================
-         DRIVING LICENSE
-         ================================================== */
-
-      const cleanDrivingLicense =
-        toNullableString(driving_lecense);
+      const cleanDrivingLicense = toNullableString(driving_lecense);
 
       if (
         cleanDrivingLicense &&
@@ -1004,10 +1010,6 @@ router.put(
         });
       }
 
-      /* ==================================================
-         PHONE
-         ================================================== */
-
       const cleanPhone = String(phone).trim();
 
       if (!/^\d{1,11}$/.test(cleanPhone)) {
@@ -1019,10 +1021,6 @@ router.put(
             "Phone number must contain only numbers and maximum 11 digits.",
         });
       }
-
-      /* ==================================================
-         EMERGENCY PHONE
-         ================================================== */
 
       const cleanEmergencyPhone = toNullableString(
         emergency_contact_phone,
@@ -1041,12 +1039,6 @@ router.put(
         });
       }
 
-      /* ==================================================
-         CHECK DUPLICATE EMPLOYEE ID
-         Same company
-         Exclude current employee
-         ================================================== */
-
       const [duplicateEmployee] = await db.query(
         `
           SELECT id
@@ -1056,11 +1048,7 @@ router.put(
             AND id != ?
           LIMIT 1
         `,
-        [
-          company_id,
-          cleanEmployeeId,
-          employeeId,
-        ],
+        [company_id, cleanEmployeeId, employeeId],
       );
 
       if (duplicateEmployee.length > 0) {
@@ -1072,15 +1060,7 @@ router.put(
         });
       }
 
-      /* ==================================================
-         CHECK DUPLICATE EMAIL
-         Same company
-         Exclude current employee
-         ================================================== */
-
-      const cleanEmail = String(personal_email)
-        .trim()
-        .toLowerCase();
+      const cleanEmail = String(personal_email).trim().toLowerCase();
 
       const [duplicateEmail] = await db.query(
         `
@@ -1091,11 +1071,7 @@ router.put(
             AND id != ?
           LIMIT 1
         `,
-        [
-          company_id,
-          cleanEmail,
-          employeeId,
-        ],
+        [company_id, cleanEmail, employeeId],
       );
 
       if (duplicateEmail.length > 0) {
@@ -1107,19 +1083,11 @@ router.put(
         });
       }
 
-      /* ==================================================
-         PHOTO
-         ================================================== */
-
       let photo = existingEmployee.photo;
 
       if (req.file) {
         photo = req.file.filename;
       }
-
-      /* ==================================================
-         UPDATE
-         ================================================== */
 
       await db.query(
         `
@@ -1145,7 +1113,8 @@ router.put(
             confirmation_date = ?,
             employment_status = ?,
             photo = ?,
-            driving_lecense = ?
+            driving_lecense = ?,
+            designation_id = ?
           WHERE id = ?
             AND company_id = ?
         `,
@@ -1171,15 +1140,11 @@ router.put(
           String(employment_status || "active").trim(),
           photo,
           cleanDrivingLicense,
+          cleanDesignationId,
           employeeId,
           company_id,
         ],
       );
-
-      /* ==================================================
-         DELETE OLD PHOTO
-         Only after successful database update
-         ================================================== */
 
       if (
         req.file &&

@@ -425,7 +425,14 @@ const AddEmployee = () => {
     joining_date: "",
     confirmation_date: "",
     employment_status: "active",
+    designation_id: "",
   });
+
+  /* ------------------------------------------------------
+     Designations
+     ------------------------------------------------------ */
+  const [designations, setDesignations] = useState([]);
+  const [loadingDesignations, setLoadingDesignations] = useState(true);
 
   const [photo, setPhoto] = useState(null);
   const [photoPreview, setPhotoPreview] = useState("");
@@ -465,8 +472,53 @@ const AddEmployee = () => {
   }, []);
 
   /* =========================================================
+     FETCH DESIGNATIONS
+     ========================================================= */
+
+  useEffect(() => {
+    const fetchDesignations = async () => {
+      try {
+        setLoadingDesignations(true);
+
+        const response = await fetch(
+          `${API_BASE_URL}/api/employees/designations`,
+          {
+            credentials: "include",
+            cache: "no-store",
+          },
+        );
+
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(
+            data.message || "Failed to fetch designations.",
+          );
+        }
+
+        setDesignations(data.data || []);
+      } catch (error) {
+        console.error("Failed to fetch designations:", error);
+
+        setDesignations([]);
+
+        setErrors((prev) => ({
+          ...prev,
+          general:
+            error instanceof Error
+              ? error.message
+              : "Unable to load designations.",
+        }));
+      } finally {
+        setLoadingDesignations(false);
+      }
+    };
+
+    fetchDesignations();
+  }, []);
+
+  /* =========================================================
      SERVER-SIDE DUPLICATE CHECK
-     Mirrors the CompanyRegistration pattern exactly.
      ========================================================= */
 
   const checkEmailDuplicateOnServer = async (value) => {
@@ -477,8 +529,6 @@ const AddEmployee = () => {
     }
 
     try {
-      console.log("Checking personal email:", email);
-
       const response = await fetch(
         `${API_BASE_URL}/api/employees/check-email`,
         {
@@ -494,8 +544,6 @@ const AddEmployee = () => {
       );
 
       const data = await response.json();
-
-      console.log("Email duplicate response:", response.status, data);
 
       if (!response.ok) {
         setErrors((prev) => ({
@@ -525,6 +573,7 @@ const AddEmployee = () => {
       }));
     }
   };
+
   const validateField = (name, value) => {
     const fieldValue = String(value ?? "").trim();
 
@@ -616,6 +665,12 @@ const AddEmployee = () => {
         }
         break;
 
+      case "designation_id":
+        if (!fieldValue) {
+          message = "Please select a designation.";
+        }
+        break;
+
       default:
         break;
     }
@@ -638,29 +693,24 @@ const AddEmployee = () => {
       [name]: value,
     }));
 
-    // Clear existing error while user is typing
     setErrors((prev) => ({
       ...prev,
       [name]: "",
     }));
 
-    // Clear previous validation timer
     if (validationTimerRef.current) {
       clearTimeout(validationTimerRef.current);
     }
 
-    // Clear previous email duplicate timer
     if (name === "personal_email") {
       if (emailDuplicateTimerRef.current) {
         clearTimeout(emailDuplicateTimerRef.current);
       }
     }
 
-    // Wait 2 seconds after the user stops typing
     validationTimerRef.current = setTimeout(() => {
       validateField(name, value);
 
-      // Email duplicate check
       if (
         name === "personal_email" &&
         value.trim() &&
@@ -681,8 +731,6 @@ const AddEmployee = () => {
     }
 
     try {
-      console.log("Checking Employee ID:", employeeId);
-
       const response = await fetch(
         `${API_BASE_URL}/api/employees/check-employee-id`,
         {
@@ -698,8 +746,6 @@ const AddEmployee = () => {
       );
 
       const data = await response.json();
-
-      console.log("Employee ID duplicate response:", response.status, data);
 
       if (!response.ok) {
         setErrors((prev) => ({
@@ -729,8 +775,9 @@ const AddEmployee = () => {
       }));
     }
   };
+
   /* =========================================================
-     HANDLE EMPLOYEE ID CHANGE (with debounced duplicate check)
+     HANDLE EMPLOYEE ID CHANGE
      ========================================================= */
 
   const handleEmployeeIdChange = (e) => {
@@ -741,13 +788,11 @@ const AddEmployee = () => {
       employee_id: value,
     }));
 
-    // Clear previous error immediately while typing
     setErrors((prev) => ({
       ...prev,
       employee_id: "",
     }));
 
-    // Clear previous duplicate-check timer
     if (employeeIdDuplicateTimerRef.current) {
       clearTimeout(employeeIdDuplicateTimerRef.current);
     }
@@ -758,14 +803,13 @@ const AddEmployee = () => {
       return;
     }
 
-    // Start a 2-second debounce timer
     employeeIdDuplicateTimerRef.current = setTimeout(() => {
       checkDuplicateOnServer(trimmed);
     }, 2000);
   };
 
   /* =========================================================
-     HANDLE NAME CHANGE (alphabets and spaces only)
+     HANDLE NAME CHANGE
      ========================================================= */
 
   const handleNameChange = (e) => {
@@ -1022,6 +1066,10 @@ const AddEmployee = () => {
       newErrors.joining_date = "Joining date is required.";
     }
 
+    if (!formData.designation_id) {
+      newErrors.designation_id = "Please select a designation.";
+    }
+
     return newErrors;
   };
 
@@ -1038,19 +1086,13 @@ const AddEmployee = () => {
     });
 
     const validationErrors = validateForm();
+
     if (errors.employee_id === "This Employee ID already exists.") {
       validationErrors.employee_id = errors.employee_id;
     }
 
     if (errors.personal_email === "This email already exists.") {
       validationErrors.personal_email = errors.personal_email;
-    }
-    // Preserve any existing duplicate error from the real-time check
-    if (
-      errors.employee_id &&
-      errors.employee_id === "This Employee ID already exists."
-    ) {
-      validationErrors.employee_id = errors.employee_id;
     }
 
     if (Object.keys(validationErrors).length > 0) {
@@ -1114,13 +1156,11 @@ const AddEmployee = () => {
         text: result.message || "Employee created successfully.",
       });
 
-      // Clear any pending duplicate timer
       if (employeeIdDuplicateTimerRef.current) {
         clearTimeout(employeeIdDuplicateTimerRef.current);
         employeeIdDuplicateTimerRef.current = null;
       }
 
-      // Reset form state
       setFormData({
         employee_id: "",
         first_name: "",
@@ -1140,6 +1180,7 @@ const AddEmployee = () => {
         joining_date: "",
         confirmation_date: "",
         employment_status: "active",
+        designation_id: "",
       });
 
       setPhoto(null);
@@ -1269,7 +1310,7 @@ const AddEmployee = () => {
                 )}
               </div>
 
-              {/* First Name */}
+              {/* Full Name */}
               <div>
                 <label className={labelStyle}>
                   Full Name <span className="text-danger">*</span>
@@ -1286,6 +1327,37 @@ const AddEmployee = () => {
 
                 {errors.first_name && (
                   <p className={errorStyle}>{errors.first_name}</p>
+                )}
+              </div>
+
+              {/* Designation (Dropdown) */}
+              <div>
+                <label className={labelStyle}>
+                  Designation <span className="text-danger">*</span>
+                </label>
+
+                <select
+                  name="designation_id"
+                  value={formData.designation_id}
+                  onChange={handleChange}
+                  disabled={loadingDesignations || isSubmitting}
+                  className={`${inputStyle} disabled:cursor-not-allowed disabled:bg-surface-grey`}
+                >
+                  <option value="">
+                    {loadingDesignations
+                      ? "Loading designations..."
+                      : "Select designation"}
+                  </option>
+
+                  {designations.map((item) => (
+                    <option key={item.id} value={String(item.id)}>
+                      {item.name}
+                    </option>
+                  ))}
+                </select>
+
+                {errors.designation_id && (
+                  <p className={errorStyle}>{errors.designation_id}</p>
                 )}
               </div>
 
@@ -1542,7 +1614,6 @@ const AddEmployee = () => {
               <div>
                 <label className={labelStyle}>
                   Contact Name{" "}
-                  
                 </label>
 
                 <input
@@ -1559,7 +1630,6 @@ const AddEmployee = () => {
               <div>
                 <label className={labelStyle}>
                   Contact Phone{" "}
-                  
                 </label>
 
                 <input
@@ -1768,7 +1838,7 @@ const AddEmployee = () => {
 
             <button
               type="submit"
-              disabled={isSubmitting}
+              disabled={isSubmitting || loadingDesignations}
               className="rounded-lg bg-primary px-7 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-60"
             >
               {isSubmitting ? "Creating Employee..." : "Create Employee"}
