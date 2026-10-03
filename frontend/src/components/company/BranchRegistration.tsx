@@ -8,8 +8,6 @@ import {
   type FormEvent,
 } from "react";
 
-import Swal from "sweetalert2";
-
 import {
   Building2,
   User,
@@ -19,9 +17,26 @@ import {
   BriefcaseBusiness,
   MapPin,
   UploadCloud,
+  ChevronDown,
+  Check,
+  AlertCircle,
+  CheckCircle2,
+  X,
 } from "lucide-react";
 
 import { API_BASE_URL } from "../../constants/api";
+
+interface DesignationOption {
+  id: number;
+  code: string;
+  name: string;
+}
+
+interface StatusMessage {
+  type: "success" | "error" | "warning";
+  title: string;
+  text: string;
+}
 
 export default function BranchRegistration() {
   const [imagePreview, setImagePreview] = useState<string | null>(null);
@@ -38,6 +53,14 @@ export default function BranchRegistration() {
   const emailCheckTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const phoneCheckTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  /* ------------------------------------------------------------------
+     DESIGNATION DROPDOWN STATE
+     ------------------------------------------------------------------ */
+  const [designations, setDesignations] = useState<DesignationOption[]>([]);
+  const [designationOpen, setDesignationOpen] = useState(false);
+  const [loadingDesignations, setLoadingDesignations] = useState(true);
+  const designationRef = useRef<HTMLDivElement>(null);
+
   const [formData, setFormData] = useState({
     branchName: "",
     name: "",
@@ -51,12 +74,38 @@ export default function BranchRegistration() {
   const [errors, setErrors] = useState({
     email: "",
     phone: "",
+    designation: "",
     general: "",
   });
 
-  // =========================================================
-  // CLEANUP DEBOUNCE TIMERS
-  // =========================================================
+  const [statusMessage, setStatusMessage] = useState<StatusMessage | null>(
+    null,
+  );
+
+  /* ------------------------------------------------------------------
+     AUTO-DISMISS INLINE MESSAGE
+     ------------------------------------------------------------------ */
+  useEffect(() => {
+    if (!statusMessage) return;
+
+    const timer = setTimeout(() => {
+      setStatusMessage(null);
+    }, 4000);
+
+    return () => clearTimeout(timer);
+  }, [statusMessage]);
+
+  const showStatus = (
+    type: StatusMessage["type"],
+    title: string,
+    text: string,
+  ) => {
+    setStatusMessage({ type, title, text });
+  };
+
+  /* ------------------------------------------------------------------
+     CLEANUP DEBOUNCE TIMERS
+     ------------------------------------------------------------------ */
   useEffect(() => {
     return () => {
       if (emailCheckTimer.current) {
@@ -69,9 +118,72 @@ export default function BranchRegistration() {
     };
   }, []);
 
-  // =========================================================
-  // EMAIL VALIDATION
-  // =========================================================
+  /* ------------------------------------------------------------------
+     FETCH DESIGNATIONS
+     ------------------------------------------------------------------ */
+  useEffect(() => {
+    const fetchDesignations = async () => {
+      try {
+        setLoadingDesignations(true);
+
+        const response = await fetch(
+          `${API_BASE_URL}/api/registration/designations`,
+          {
+            credentials: "include",
+            cache: "no-store",
+          },
+        );
+
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(
+            data.message || "Failed to fetch designations.",
+          );
+        }
+
+        setDesignations(data.data || []);
+      } catch (error) {
+        console.error("Failed to fetch designations:", error);
+
+        setDesignations([]);
+
+        showStatus(
+          "error",
+          "Failed to load designations",
+          "Unable to load designations from the server.",
+        );
+      } finally {
+        setLoadingDesignations(false);
+      }
+    };
+
+    fetchDesignations();
+  }, []);
+
+  /* ------------------------------------------------------------------
+     CLICK OUTSIDE FOR DESIGNATION DROPDOWN
+     ------------------------------------------------------------------ */
+  useEffect(() => {
+    const handleOutsideClick = (event: MouseEvent) => {
+      if (
+        designationRef.current &&
+        !designationRef.current.contains(event.target as Node)
+      ) {
+        setDesignationOpen(false);
+      }
+    };
+
+    document.addEventListener("mousedown", handleOutsideClick);
+
+    return () => {
+      document.removeEventListener("mousedown", handleOutsideClick);
+    };
+  }, []);
+
+  /* ------------------------------------------------------------------
+     EMAIL VALIDATION
+     ------------------------------------------------------------------ */
   const validateEmail = (email: string): boolean => {
     const emailAtIndex = email.indexOf("@");
 
@@ -83,16 +195,16 @@ export default function BranchRegistration() {
     );
   };
 
-  // =========================================================
-  // PHONE VALIDATION
-  // =========================================================
+  /* ------------------------------------------------------------------
+     PHONE VALIDATION
+     ------------------------------------------------------------------ */
   const validatePhone = (phone: string): boolean => {
     return /^\d{11}$/.test(phone);
   };
 
-  // =========================================================
-  // CHECK DUPLICATE VALUE
-  // =========================================================
+  /* ------------------------------------------------------------------
+     CHECK DUPLICATE VALUE
+     ------------------------------------------------------------------ */
   const checkDuplicate = async (field: "email" | "phone", value: string) => {
     const cleanValue = value.trim();
 
@@ -161,20 +273,13 @@ export default function BranchRegistration() {
     }
   };
 
-  // =========================================================
-  // HANDLE INPUT CHANGE
-  // =========================================================
-  // =========================================================
-  // HANDLE INPUT CHANGE
-  // =========================================================
-
+  /* ------------------------------------------------------------------
+     HANDLE INPUT CHANGE
+     ------------------------------------------------------------------ */
   const handleChange = (event: ChangeEvent<HTMLInputElement>) => {
     const { name, value } = event.target;
 
-    // ---------------------------------------------------------
-    // PHONE
-    // ---------------------------------------------------------
-
+    /* ---------------- PHONE ---------------- */
     if (name === "phone") {
       const digitsOnly = value.replace(/\D/g, "");
       const phoneValue = digitsOnly.slice(0, 11);
@@ -184,20 +289,14 @@ export default function BranchRegistration() {
         phone: phoneValue,
       }));
 
-      // Clear general error
       setErrors((previous) => ({
         ...previous,
         general: "",
       }));
 
-      // Clear previous duplicate-check timer
       if (phoneCheckTimer.current) {
         clearTimeout(phoneCheckTimer.current);
       }
-
-      // -------------------------------------------------------
-      // REAL-TIME PHONE VALIDATION
-      // -------------------------------------------------------
 
       let phoneError = "";
 
@@ -214,11 +313,6 @@ export default function BranchRegistration() {
         phone: phoneError,
       }));
 
-      // -------------------------------------------------------
-      // DUPLICATE PHONE CHECK
-      // Only check when exactly 11 digits are entered
-      // -------------------------------------------------------
-
       if (phoneValue.length === 11 && validatePhone(phoneValue)) {
         phoneCheckTimer.current = setTimeout(() => {
           checkDuplicate("phone", phoneValue);
@@ -228,32 +322,23 @@ export default function BranchRegistration() {
       return;
     }
 
-    // ---------------------------------------------------------
-    // EMAIL
-    // ---------------------------------------------------------
-
+    /* ---------------- EMAIL ---------------- */
     if (name === "email") {
       setFormData((previous) => ({
         ...previous,
         email: value,
       }));
 
-      // Clear general error
       setErrors((previous) => ({
         ...previous,
         general: "",
       }));
 
-      // Clear previous duplicate-check timer
       if (emailCheckTimer.current) {
         clearTimeout(emailCheckTimer.current);
       }
 
       const cleanEmail = value.trim();
-
-      // -------------------------------------------------------
-      // REAL-TIME EMAIL VALIDATION
-      // -------------------------------------------------------
 
       let emailError = "";
 
@@ -269,11 +354,6 @@ export default function BranchRegistration() {
         email: emailError,
       }));
 
-      // -------------------------------------------------------
-      // DUPLICATE EMAIL CHECK
-      // Only check when email format is valid
-      // -------------------------------------------------------
-
       if (validateEmail(cleanEmail)) {
         emailCheckTimer.current = setTimeout(() => {
           checkDuplicate("email", cleanEmail);
@@ -283,10 +363,7 @@ export default function BranchRegistration() {
       return;
     }
 
-    // ---------------------------------------------------------
-    // OTHER FIELDS
-    // ---------------------------------------------------------
-
+    /* ---------------- OTHER FIELDS ---------------- */
     setFormData((previous) => ({
       ...previous,
       [name]: value,
@@ -298,15 +375,9 @@ export default function BranchRegistration() {
     }));
   };
 
-  // =========================================================
-  // PROCESS IMAGE
-  //
-  // Any size / any dimension:
-  // 1. Center crop to square
-  // 2. Resize maximum 512x512
-  // 3. Convert to JPEG
-  // 4. Compress until <= 50 KB
-  // =========================================================
+  /* ------------------------------------------------------------------
+     PROCESS IMAGE
+     ------------------------------------------------------------------ */
   const processImage = (file: File): Promise<File> => {
     return new Promise((resolve, reject) => {
       const image = new Image();
@@ -324,18 +395,12 @@ export default function BranchRegistration() {
             throw new Error("Invalid image dimensions.");
           }
 
-          // ---------------------------------------------------
-          // CENTER CROP TO SQUARE
-          // ---------------------------------------------------
           const cropSize = Math.min(sourceWidth, sourceHeight);
 
           const cropX = Math.floor((sourceWidth - cropSize) / 2);
 
           const cropY = Math.floor((sourceHeight - cropSize) / 2);
 
-          // ---------------------------------------------------
-          // RESIZE TO MAX 512x512
-          // ---------------------------------------------------
           const outputSize = Math.min(cropSize, 512);
 
           const canvas = document.createElement("canvas");
@@ -364,9 +429,6 @@ export default function BranchRegistration() {
             outputSize,
           );
 
-          // ---------------------------------------------------
-          // COMPRESS IMAGE
-          // ---------------------------------------------------
           const MAX_FILE_SIZE = 50 * 1024;
 
           const qualities = [
@@ -390,7 +452,6 @@ export default function BranchRegistration() {
 
           let finalBlob: Blob | null = null;
 
-          // First try quality compression.
           for (const quality of qualities) {
             const blob = await convertCanvasToBlob(quality);
 
@@ -404,9 +465,6 @@ export default function BranchRegistration() {
             }
           }
 
-          // ---------------------------------------------------
-          // IF STILL TOO LARGE, REDUCE DIMENSIONS
-          // ---------------------------------------------------
           if (!finalBlob) {
             let currentSize = outputSize;
 
@@ -456,9 +514,6 @@ export default function BranchRegistration() {
             throw new Error("Unable to compress image below 50 KB.");
           }
 
-          // ---------------------------------------------------
-          // CREATE FINAL FILE
-          // ---------------------------------------------------
           const finalFile = new File([finalBlob], "branch-logo.jpg", {
             type: "image/jpeg",
             lastModified: Date.now(),
@@ -480,9 +535,9 @@ export default function BranchRegistration() {
     });
   };
 
-  // =========================================================
-  // IMAGE CHANGE
-  // =========================================================
+  /* ------------------------------------------------------------------
+     IMAGE CHANGE
+     ------------------------------------------------------------------ */
   const handleImageChange = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
 
@@ -493,14 +548,8 @@ export default function BranchRegistration() {
     try {
       const processedFile = await processImage(file);
 
-      // -------------------------------------------------------
-      // SAVE PROCESSED FILE
-      // -------------------------------------------------------
       setProcessedImage(processedFile);
 
-      // -------------------------------------------------------
-      // PREVIEW PROCESSED IMAGE
-      // -------------------------------------------------------
       const previewUrl = URL.createObjectURL(processedFile);
 
       setImagePreview((previous) => {
@@ -519,38 +568,31 @@ export default function BranchRegistration() {
 
       setImagePreview(null);
 
-      await Swal.fire({
-        icon: "error",
-        title: "Image processing failed",
-        text:
-          error instanceof Error
-            ? error.message
-            : "Unable to process the selected image.",
-        confirmButtonColor: "#7d1119",
-      });
+      showStatus(
+        "error",
+        "Image processing failed",
+        error instanceof Error
+          ? error.message
+          : "Unable to process the selected image.",
+      );
     }
   };
 
-  // =========================================================
-  // SUBMIT
-  // =========================================================
+  /* ------------------------------------------------------------------
+     SUBMIT
+     ------------------------------------------------------------------ */
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
-    // =========================================================
-    // STOP WHILE BRANCH COUNT IS LOADING
-    // =========================================================
     if (loadingBranchCount) {
       return;
     }
 
-    // =========================================================
-    // STOP IF NO BRANCH SLOT
-    // =========================================================
     if (branchCountRemaining <= 0) {
       setErrors({
         email: "",
         phone: "",
+        designation: "",
         general:
           "You have reached your maximum number of branches. No more branches can be created.",
       });
@@ -561,6 +603,7 @@ export default function BranchRegistration() {
     setErrors({
       email: "",
       phone: "",
+      designation: "",
       general: "",
     });
 
@@ -569,9 +612,6 @@ export default function BranchRegistration() {
 
     let hasError = false;
 
-    // =========================================================
-    // EMAIL VALIDATION
-    // =========================================================
     if (!validateEmail(email)) {
       setErrors((previous) => ({
         ...previous,
@@ -582,9 +622,6 @@ export default function BranchRegistration() {
       hasError = true;
     }
 
-    // =========================================================
-    // PHONE VALIDATION
-    // =========================================================
     if (!validatePhone(phone)) {
       setErrors((previous) => ({
         ...previous,
@@ -594,9 +631,15 @@ export default function BranchRegistration() {
       hasError = true;
     }
 
-    // =========================================================
-    // CHECK DUPLICATE STATUS
-    // =========================================================
+    if (!formData.designation) {
+      setErrors((previous) => ({
+        ...previous,
+        designation: "Please select a designation.",
+      }));
+
+      hasError = true;
+    }
+
     if (checkingEmail || checkingPhone) {
       setErrors((previous) => ({
         ...previous,
@@ -606,23 +649,14 @@ export default function BranchRegistration() {
       return;
     }
 
-    // =========================================================
-    // STOP IF DUPLICATE ERROR ALREADY EXISTS
-    // =========================================================
     if (errors.email || errors.phone) {
       return;
     }
 
-    // =========================================================
-    // STOP IF VALIDATION FAILED
-    // =========================================================
     if (hasError) {
       return;
     }
 
-    // =========================================================
-    // FORM DATA
-    // =========================================================
     const form = new FormData();
 
     form.append("branchName", formData.branchName.trim());
@@ -630,32 +664,25 @@ export default function BranchRegistration() {
     form.append("email", email);
     form.append("phone", phone);
     form.append("password", formData.password);
-    form.append("designation", formData.designation.trim());
+    form.append("designation", String(formData.designation));
     form.append("location", formData.location.trim());
-
-    // =========================================================
-    // APPEND PROCESSED IMAGE IF PROVIDED
-    // =========================================================
 
     if (processedImage) {
       form.append("logo", processedImage);
     }
 
-    // =========================================================
-    // SEND TO BACKEND
-    // =========================================================
     try {
-      const response = await fetch(`${API_BASE_URL}/api/registration/branch`, {
-        method: "POST",
-        credentials: "include",
-        body: form,
-      });
+      const response = await fetch(
+        `${API_BASE_URL}/api/registration/branch`,
+        {
+          method: "POST",
+          credentials: "include",
+          body: form,
+        },
+      );
 
       const data = await response.json();
 
-      // =======================================================
-      // BACKEND VALIDATION ERROR
-      // =======================================================
       if (!response.ok) {
         if (data.code === "EMAIL_EXISTS") {
           setErrors((previous) => ({
@@ -669,7 +696,8 @@ export default function BranchRegistration() {
         if (data.code === "PHONE_EXISTS") {
           setErrors((previous) => ({
             ...previous,
-            phone: data.message || "This phone number is already registered.",
+            phone:
+              data.message || "This phone number is already registered.",
           }));
 
           return;
@@ -680,6 +708,7 @@ export default function BranchRegistration() {
             email: data.emailMessage || "This email is already registered.",
             phone:
               data.phoneMessage || "This phone number is already registered.",
+            designation: "",
             general: "",
           });
 
@@ -705,29 +734,23 @@ export default function BranchRegistration() {
         return;
       }
 
-      // =======================================================
-      // UPDATE REMAINING BRANCH COUNT
-      // =======================================================
-      if (data.data && typeof data.data.branchCount_Remaining !== "undefined") {
-        setBranchCountRemaining(Number(data.data.branchCount_Remaining) || 0);
+      if (
+        data.data &&
+        typeof data.data.branchCount_Remaining !== "undefined"
+      ) {
+        setBranchCountRemaining(
+          Number(data.data.branchCount_Remaining) || 0,
+        );
       } else {
         setBranchCountRemaining((previous) => Math.max(previous - 1, 0));
       }
 
-      // =======================================================
-      // SUCCESS
-      // =======================================================
-      await Swal.fire({
-        icon: "success",
-        title: "Registration Successful!",
-        text: "The branch has been registered successfully.",
-        confirmButtonText: "OK",
-        confirmButtonColor: "#7d1119",
-      });
+      showStatus(
+        "success",
+        "Registration Successful!",
+        "The branch has been registered successfully.",
+      );
 
-      // =======================================================
-      // RESET FORM
-      // =======================================================
       setFormData({
         branchName: "",
         name: "",
@@ -751,6 +774,7 @@ export default function BranchRegistration() {
       setErrors({
         email: "",
         phone: "",
+        designation: "",
         general: "",
       });
 
@@ -771,9 +795,9 @@ export default function BranchRegistration() {
     }
   };
 
-  // =========================================================
-  // FETCH BRANCH COUNT
-  // =========================================================
+  /* ------------------------------------------------------------------
+     FETCH BRANCH COUNT
+     ------------------------------------------------------------------ */
   useEffect(() => {
     const fetchBranchCount = async () => {
       try {
@@ -790,12 +814,16 @@ export default function BranchRegistration() {
         const data = await response.json();
 
         if (!response.ok) {
-          throw new Error(data.message || "Failed to fetch branch count.");
+          throw new Error(
+            data.message || "Failed to fetch branch count.",
+          );
         }
 
         setBranchCount(Number(data.data.branchCount) || 0);
 
-        setBranchCountRemaining(Number(data.data.branchCount_Remaining) || 0);
+        setBranchCountRemaining(
+          Number(data.data.branchCount_Remaining) || 0,
+        );
       } catch (error) {
         console.error("Failed to fetch branch count:", error);
 
@@ -809,18 +837,36 @@ export default function BranchRegistration() {
     fetchBranchCount();
   }, []);
 
+  const selectedDesignation = designations.find(
+    (item) => String(item.id) === formData.designation,
+  );
+
+  /* ------------------------------------------------------------------
+     STATUS STYLES
+     ------------------------------------------------------------------ */
+  const statusStyles: Record<StatusMessage["type"], string> = {
+    success:
+      "border-green-300 bg-green-50 text-green-800 dark:border-green-800 dark:bg-green-950 dark:text-green-200",
+    error:
+      "border-red-300 bg-red-50 text-red-800 dark:border-red-800 dark:bg-red-950 dark:text-red-200",
+    warning:
+      "border-yellow-300 bg-yellow-50 text-yellow-800 dark:border-yellow-800 dark:bg-yellow-950 dark:text-yellow-200",
+  };
+
+  const StatusIcon = ({ type }: { type: StatusMessage["type"] }) => {
+    if (type === "success") return <CheckCircle2 className="h-4 w-4" />;
+    return <AlertCircle className="h-4 w-4" />;
+  };
+
   return (
     <div className="min-h-screen bg-surface px-4 py-8">
       <div className="mx-auto w-full max-w-[620px]">
-        {/* =====================================================
-            HEADER
-        ====================================================== */}
+        {/* HEADER */}
         <div className="mb-0 bg-primary px-5 py-4 text-center">
           <h1 className="text-2xl font-bold text-white sm:text-3xl">
             Branch Registration
           </h1>
 
-          {/* Branch Count Information */}
           <div className="mt-2 text-sm text-white/90">
             {loadingBranchCount ? (
               <span>Checking available branches...</span>
@@ -840,14 +886,41 @@ export default function BranchRegistration() {
           </div>
         </div>
 
-        {/* =====================================================
-            FORM
-        ====================================================== */}
+        {/* INLINE MESSAGE */}
+        {statusMessage && (
+          <div
+            className={`flex items-start gap-2 border-x border-b px-3 py-2 text-xs ${statusStyles[statusMessage.type]}`}
+          >
+            <span className="mt-0.5 shrink-0">
+              <StatusIcon type={statusMessage.type} />
+            </span>
+
+            <div className="flex-1">
+              <p className="font-semibold">{statusMessage.title}</p>
+              <p className="mt-0.5">{statusMessage.text}</p>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setStatusMessage(null)}
+              className="shrink-0 rounded p-0.5 transition hover:bg-black/10"
+              title="Dismiss"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        )}
+
+        {/* FORM */}
         <form
           onSubmit={handleSubmit}
           className="bg-surface px-5 py-7 sm:px-8 sm:py-8"
         >
-          <fieldset disabled={loadingBranchCount || branchCountRemaining <= 0}>
+          <fieldset
+            disabled={
+              loadingBranchCount || branchCountRemaining <= 0
+            }
+          >
             <div className="space-y-3">
               {/* Branch Name */}
               <FormField
@@ -935,16 +1008,115 @@ export default function BranchRegistration() {
                 required
               />
 
-              {/* Designation */}
-              <FormField
-                icon={<BriefcaseBusiness size={18} strokeWidth={2} />}
-                label="Designation"
-                name="designation"
-                value={formData.designation}
-                onChange={handleChange}
-                placeholder="Designation"
-                required
-              />
+              {/* Designation — Dropdown */}
+              <div>
+                <div className="flex min-h-[38px] w-full overflow-visible rounded-md border border-border bg-white">
+                  <div className="flex min-w-fit items-center bg-gray-100 px-3 py-2">
+                    <BriefcaseBusiness
+                      size={18}
+                      strokeWidth={2}
+                      className="mr-2 text-text-primary"
+                    />
+
+                    <label className="text-sm font-medium text-text-primary">
+                      Designation
+                      <span className="ml-1 text-secondary">*</span>
+                    </label>
+                  </div>
+
+                  <div
+                    ref={designationRef}
+                    className="relative flex flex-1 items-center"
+                  >
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setDesignationOpen((previous) => !previous)
+                      }
+                      disabled={loadingDesignations}
+                      className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm text-text-primary outline-none disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      <span
+                        className={
+                          selectedDesignation
+                            ? "text-text-primary"
+                            : "text-text-muted"
+                        }
+                      >
+                        {loadingDesignations
+                          ? "Loading designations..."
+                          : selectedDesignation
+                            ? selectedDesignation.name
+                            : "Select designation"}
+                      </span>
+
+                      <ChevronDown
+                        size={16}
+                        className={`shrink-0 text-text-secondary transition-transform ${
+                          designationOpen ? "rotate-180" : ""
+                        }`}
+                      />
+                    </button>
+
+                    {designationOpen && !loadingDesignations && (
+                      <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-60 overflow-y-auto rounded-md border border-border bg-white py-1 shadow-lg">
+                        {designations.length === 0 ? (
+                          <div className="px-3 py-3 text-center text-sm text-text-muted">
+                            No designations available.
+                          </div>
+                        ) : (
+                          designations.map((item) => {
+                            const isSelected =
+                              String(item.id) === formData.designation;
+
+                            return (
+                              <button
+                                key={item.id}
+                                type="button"
+                                onClick={() => {
+                                  setFormData((previous) => ({
+                                    ...previous,
+                                    designation: String(item.id),
+                                  }));
+
+                                  setDesignationOpen(false);
+
+                                  if (errors.designation) {
+                                    setErrors((previous) => ({
+                                      ...previous,
+                                      designation: "",
+                                    }));
+                                  }
+                                }}
+                                className={`flex w-full items-center justify-between px-3 py-2 text-left text-sm transition ${
+                                  isSelected
+                                    ? "bg-primary/10 text-primary"
+                                    : "text-text-primary hover:bg-surface-grey"
+                                }`}
+                              >
+                                <span>{item.name}</span>
+
+                                {isSelected && (
+                                  <Check
+                                    size={14}
+                                    strokeWidth={3}
+                                  />
+                                )}
+                              </button>
+                            );
+                          })
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {errors.designation && (
+                  <p className="mt-1 pl-2 text-sm text-danger">
+                    {errors.designation}
+                  </p>
+                )}
+              </div>
 
               {/* Location */}
               <FormField
@@ -957,9 +1129,7 @@ export default function BranchRegistration() {
                 required
               />
 
-              {/* =================================================
-                  OPTIONAL IMAGE UPLOAD
-              ================================================== */}
+              {/* OPTIONAL IMAGE UPLOAD */}
               <div className="pt-1">
                 <label
                   htmlFor="branch-image"
@@ -996,22 +1166,20 @@ export default function BranchRegistration() {
               </div>
             </div>
 
-            {/* ===================================================
-                GENERAL ERROR
-            =================================================== */}
+            {/* GENERAL ERROR */}
             {errors.general && (
               <div className="mt-4 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-danger">
                 {errors.general}
               </div>
             )}
 
-            {/* ===================================================
-                REGISTRATION BUTTON
-            =================================================== */}
+            {/* REGISTRATION BUTTON */}
             <div className="mt-4">
               <button
                 type="submit"
-                disabled={loadingBranchCount || branchCountRemaining <= 0}
+                disabled={
+                  loadingBranchCount || branchCountRemaining <= 0
+                }
                 className="inline-flex min-w-[109px] items-center justify-center rounded-md bg-primary px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-primary"
               >
                 {loadingBranchCount
@@ -1028,9 +1196,9 @@ export default function BranchRegistration() {
   );
 }
 
-// =============================================================
-// REUSABLE FORM FIELD
-// =============================================================
+/* ---------------------------------------------------------------------
+   REUSABLE FORM FIELD
+   --------------------------------------------------------------------- */
 function FormField({
   icon,
   label,
@@ -1052,18 +1220,21 @@ function FormField({
 }) {
   return (
     <div className="flex min-h-[38px] w-full overflow-hidden rounded-md border border-border bg-white">
-      {/* Label */}
       <div className="flex min-w-fit items-center bg-gray-100 px-3 py-2">
-        <label htmlFor={name} className="text-sm font-medium text-text-primary">
+        <label
+          htmlFor={name}
+          className="text-sm font-medium text-text-primary"
+        >
           {label}
 
           {required && <span className="ml-1 text-secondary">*</span>}
         </label>
       </div>
 
-      {/* Input */}
       <div className="flex flex-1 items-center">
-        <span className="hidden pl-3 text-text-primary sm:block">{icon}</span>
+        <span className="hidden pl-3 text-text-primary sm:block">
+          {icon}
+        </span>
 
         <input
           id={name}

@@ -142,7 +142,6 @@ router.get("/designations", async (req, res) => {
           code,
           name
         FROM organization_designation
-        WHERE status = 'active'
         ORDER BY name ASC
       `,
     );
@@ -391,7 +390,6 @@ router.post(
           SELECT id
           FROM organization_designation
           WHERE id = ?
-            AND status = 'active'
           LIMIT 1
         `,
         [cleanDesignationId],
@@ -968,7 +966,6 @@ router.put(
           SELECT id
           FROM organization_designation
           WHERE id = ?
-            AND status = 'active'
           LIMIT 1
         `,
         [cleanDesignationId],

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   Search,
@@ -49,22 +49,20 @@ interface EditForm {
 const BranchList = () => {
   const router = useRouter();
 
-  // =========================================================
-  // BRANCH LIST STATE
-  // =========================================================
-
   const [currentPage, setCurrentPage] = useState(1);
 
   const [search, setSearch] = useState("");
   const [openActionId, setOpenActionId] = useState<number | null>(null);
 
+  // Fixed-position coordinates for the dropdown
+  const [dropdownPos, setDropdownPos] = useState<{
+    top: number;
+    left: number;
+  } | null>(null);
+
   const [branches, setBranches] = useState<Branch[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-
-  // =========================================================
-  // PERMISSION STATE
-  // =========================================================
 
   const [permissionModalOpen, setPermissionModalOpen] = useState(false);
   const [selectedBranch, setSelectedBranch] = useState<Branch | null>(null);
@@ -74,10 +72,6 @@ const BranchList = () => {
   const [permissionError, setPermissionError] = useState("");
   const [selectedPermissions, setSelectedPermissions] = useState<number[]>([]);
   const [permissionSaving, setPermissionSaving] = useState(false);
-
-  // =========================================================
-  // EDIT STATE
-  // =========================================================
 
   const [editModalOpen, setEditModalOpen] = useState(false);
   const [editLoading, setEditLoading] = useState(false);
@@ -91,15 +85,14 @@ const BranchList = () => {
     expiry_date: "",
   });
 
-  // =========================================================
-  // DELETE STATE
-  // =========================================================
-
   const [deleteLoading, setDeleteLoading] = useState(false);
 
-  // =========================================================
-  // SEARCH
-  // =========================================================
+  // Reference to the currently open trigger button
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
+
+  /* =========================================================
+     SEARCH
+     ========================================================= */
 
   const filteredBranches = branches.filter((branch) => {
     const searchValue = search.toLowerCase().trim();
@@ -115,28 +108,22 @@ const BranchList = () => {
     );
   });
 
-  // =========================================================
-  // PAGINATION
-  // =========================================================
+  /* =========================================================
+     PAGINATION
+     ========================================================= */
 
   const branchesPerPage = 10;
 
-  const totalPages = Math.ceil(
-    filteredBranches.length / branchesPerPage,
-  );
+  const totalPages = Math.ceil(filteredBranches.length / branchesPerPage);
 
   const startIndex = (currentPage - 1) * branchesPerPage;
-
   const endIndex = startIndex + branchesPerPage;
 
-  const currentBranches = filteredBranches.slice(
-    startIndex,
-    endIndex,
-  );
+  const currentBranches = filteredBranches.slice(startIndex, endIndex);
 
-  // =========================================================
-  // FETCH BRANCHES
-  // =========================================================
+  /* =========================================================
+     FETCH BRANCHES
+     ========================================================= */
 
   const fetchBranches = async () => {
     try {
@@ -152,9 +139,7 @@ const BranchList = () => {
       const data = await response.json();
 
       if (!response.ok) {
-        throw new Error(
-          data.message || "Failed to fetch branches.",
-        );
+        throw new Error(data.message || "Failed to fetch branches.");
       }
 
       setBranches(data.branches || []);
@@ -163,9 +148,7 @@ const BranchList = () => {
       console.error("Fetch branches error:", err);
 
       setError(
-        err instanceof Error
-          ? err.message
-          : "Unable to load branches.",
+        err instanceof Error ? err.message : "Unable to load branches.",
       );
     } finally {
       setLoading(false);
@@ -176,17 +159,9 @@ const BranchList = () => {
     fetchBranches();
   }, []);
 
-  // =========================================================
-  // RESET PAGINATION WHEN SEARCH CHANGES
-  // =========================================================
-
   useEffect(() => {
     setCurrentPage(1);
   }, [search]);
-
-  // =========================================================
-  // KEEP CURRENT PAGE VALID
-  // =========================================================
 
   useEffect(() => {
     if (totalPages > 0 && currentPage > totalPages) {
@@ -198,9 +173,51 @@ const BranchList = () => {
     }
   }, [totalPages, currentPage]);
 
-  // =========================================================
-  // DATE FORMAT
-  // =========================================================
+  /* =========================================================
+     CLOSE ACTION DROPDOWN ON OUTSIDE CLICK
+     ========================================================= */
+
+  useEffect(() => {
+    const handleOutsideClick = (event: MouseEvent) => {
+      const target = event.target as HTMLElement;
+
+      if (!target.closest("[data-action-dropdown]")) {
+        setOpenActionId(null);
+        setDropdownPos(null);
+      }
+    };
+
+    document.addEventListener("mousedown", handleOutsideClick);
+
+    return () => {
+      document.removeEventListener("mousedown", handleOutsideClick);
+    };
+  }, []);
+
+  /* =========================================================
+     CLOSE ON SCROLL / RESIZE
+     ========================================================= */
+
+  useEffect(() => {
+    if (openActionId === null) return;
+
+    const closeDropdown = () => {
+      setOpenActionId(null);
+      setDropdownPos(null);
+    };
+
+    window.addEventListener("scroll", closeDropdown, true);
+    window.addEventListener("resize", closeDropdown);
+
+    return () => {
+      window.removeEventListener("scroll", closeDropdown, true);
+      window.removeEventListener("resize", closeDropdown);
+    };
+  }, [openActionId]);
+
+  /* =========================================================
+     DATE FORMAT
+     ========================================================= */
 
   const formatDate = (date: string | null) => {
     if (!date) return "-";
@@ -218,9 +235,9 @@ const BranchList = () => {
     });
   };
 
-  // =========================================================
-  // EXPIRY STATUS
-  // =========================================================
+  /* =========================================================
+     EXPIRY STATUS
+     ========================================================= */
 
   const getExpiryStatus = (date: string | null) => {
     if (!date) {
@@ -237,8 +254,7 @@ const BranchList = () => {
     expiryDate.setHours(0, 0, 0, 0);
 
     const difference =
-      (expiryDate.getTime() - today.getTime()) /
-      (1000 * 60 * 60 * 24);
+      (expiryDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24);
 
     if (difference < 0) {
       return {
@@ -260,24 +276,55 @@ const BranchList = () => {
     };
   };
 
-  // =========================================================
-  // EDIT BRANCH
-  // =========================================================
+  /* =========================================================
+     TOGGLE ACTION DROPDOWN
+     ========================================================= */
+
+  const toggleActionDropdown = (
+    branchId: number,
+    button: HTMLButtonElement,
+  ) => {
+    if (openActionId === branchId) {
+      setOpenActionId(null);
+      setDropdownPos(null);
+      return;
+    }
+
+    const rect = button.getBoundingClientRect();
+    const dropdownWidth = 160; // matches w-40 = 10rem = 160px
+    const estimatedHeight = 132; // 3 items × 44 px
+
+    // Align dropdown's right edge with the button's right edge
+    let left = rect.right - dropdownWidth;
+
+    // Keep it inside the viewport
+    if (left < 8) left = 8;
+
+    let top = rect.bottom + 4;
+
+    // If there isn't room below, open it above the button
+    if (top + estimatedHeight > window.innerHeight - 8) {
+      top = rect.top - estimatedHeight - 4;
+    }
+
+    triggerRef.current = button;
+
+    setOpenActionId(branchId);
+    setDropdownPos({ top, left });
+  };
+
+  /* =========================================================
+     EDIT BRANCH
+     ========================================================= */
 
   const handleEditClick = (branch: Branch) => {
     setOpenActionId(null);
-
+    setDropdownPos(null);
     router.push(`/company/edit/${branch.id}`);
   };
 
-  // =========================================================
-  // EDIT FORM CHANGE
-  // =========================================================
-
   const handleEditChange = (
-    e: React.ChangeEvent<
-      HTMLInputElement | HTMLTextAreaElement
-    >,
+    e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>,
   ) => {
     const { name, value } = e.target;
 
@@ -287,13 +334,7 @@ const BranchList = () => {
     }));
   };
 
-  // =========================================================
-  // SAVE EDITED BRANCH
-  // =========================================================
-
-  const handleSaveEdit = async (
-    e: React.FormEvent<HTMLFormElement>,
-  ) => {
+  const handleSaveEdit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
 
     if (!selectedBranch) return;
@@ -317,16 +358,12 @@ const BranchList = () => {
       const data = await response.json();
 
       if (!response.ok) {
-        throw new Error(
-          data.message || "Failed to update branch.",
-        );
+        throw new Error(data.message || "Failed to update branch.");
       }
 
       setBranches((prev) =>
         prev.map((branch) =>
-          branch.id === selectedBranch.id
-            ? data.branch
-            : branch,
+          branch.id === selectedBranch.id ? data.branch : branch,
         ),
       );
 
@@ -336,21 +373,20 @@ const BranchList = () => {
       console.error("Update branch error:", err);
 
       setEditError(
-        err instanceof Error
-          ? err.message
-          : "Unable to update branch.",
+        err instanceof Error ? err.message : "Unable to update branch.",
       );
     } finally {
       setEditLoading(false);
     }
   };
 
-  // =========================================================
-  // DELETE BRANCH
-  // =========================================================
+  /* =========================================================
+     DELETE BRANCH
+     ========================================================= */
 
   const handleDeleteBranch = async (branch: Branch) => {
     setOpenActionId(null);
+    setDropdownPos(null);
 
     const confirmed = window.confirm(
       `Are you sure you want to delete "${branch.branch_name}"?\n\nThis will also remove all permissions assigned to this branch.`,
@@ -375,32 +411,29 @@ const BranchList = () => {
       const data = await response.json();
 
       if (!response.ok) {
-        throw new Error(
-          data.message || "Failed to delete branch.",
-        );
+        throw new Error(data.message || "Failed to delete branch.");
       }
 
-      setBranches((prev) =>
-        prev.filter((item) => item.id !== branch.id),
-      );
+      setBranches((prev) => prev.filter((item) => item.id !== branch.id));
     } catch (err: unknown) {
       console.error("Delete branch error:", err);
 
       setError(
-        err instanceof Error
-          ? err.message
-          : "Unable to delete branch.",
+        err instanceof Error ? err.message : "Unable to delete branch.",
       );
     } finally {
       setDeleteLoading(false);
     }
   };
 
-  // =========================================================
-  // PERMISSION
-  // =========================================================
+  /* =========================================================
+     PERMISSION
+     ========================================================= */
 
   const handlePermissionClick = async (branch: Branch) => {
+    setOpenActionId(null);
+    setDropdownPos(null);
+
     try {
       setSelectedBranch(branch);
       setPermissionModalOpen(true);
@@ -423,9 +456,7 @@ const BranchList = () => {
       const data = await response.json();
 
       if (!response.ok) {
-        throw new Error(
-          data.message || "Failed to fetch permissions.",
-        );
+        throw new Error(data.message || "Failed to fetch permissions.");
       }
 
       setMenus(data.menus || []);
@@ -437,18 +468,12 @@ const BranchList = () => {
       console.error("Fetch permissions error:", err);
 
       setPermissionError(
-        err instanceof Error
-          ? err.message
-          : "Unable to load permissions.",
+        err instanceof Error ? err.message : "Unable to load permissions.",
       );
     } finally {
       setPermissionLoading(false);
     }
   };
-
-  // =========================================================
-  // PERMISSION CHANGE
-  // =========================================================
 
   const handlePermissionChange = (menuId: number | string) => {
     const numericMenuId = Number(menuId);
@@ -459,10 +484,6 @@ const BranchList = () => {
         : [...prev, numericMenuId],
     );
   };
-
-  // =========================================================
-  // SAVE PERMISSIONS
-  // =========================================================
 
   const handleSavePermissions = async () => {
     if (!selectedBranch) return;
@@ -488,9 +509,7 @@ const BranchList = () => {
       const data = await response.json();
 
       if (!response.ok) {
-        throw new Error(
-          data.message || "Failed to save permissions.",
-        );
+        throw new Error(data.message || "Failed to save permissions.");
       }
 
       console.log("Permissions saved:", data);
@@ -500,18 +519,12 @@ const BranchList = () => {
       console.error("Save permissions error:", err);
 
       setPermissionError(
-        err instanceof Error
-          ? err.message
-          : "Unable to save permissions.",
+        err instanceof Error ? err.message : "Unable to save permissions.",
       );
     } finally {
       setPermissionSaving(false);
     }
   };
-
-  // =========================================================
-  // PAGINATION HANDLER
-  // =========================================================
 
   const goToPage = (page: number) => {
     if (page < 1 || page > totalPages) {
@@ -521,35 +534,27 @@ const BranchList = () => {
     setCurrentPage(page);
   };
 
-  // =========================================================
-  // RENDER
-  // =========================================================
+  /* =========================================================
+     RENDER
+     ========================================================= */
 
   return (
     <div className="min-h-screen bg-surface-grey px-4 py-6 sm:px-6 lg:px-8">
       <div className="mx-auto max-w-7xl">
-
-        {/* =====================================================
-            HEADER
-        ===================================================== */}
+        {/* HEADER */}
 
         <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <h1 className="text-2xl font-bold text-palette-dark">
-              Branches
-            </h1>
+            <h1 className="text-2xl font-bold text-palette-dark">Branches</h1>
 
             <p className="mt-1 text-sm text-text-secondary">
-              Manage your restaurant branches and branch
-              information.
+              Manage your restaurant branches and branch information.
             </p>
           </div>
 
           <button
             type="button"
-            onClick={() =>
-              router.push("/company/registration")
-            }
+            onClick={() => router.push("/company/registration")}
             className="inline-flex items-center justify-center gap-2 rounded-lg bg-primary px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-primary-hover"
           >
             <Plus size={17} />
@@ -557,15 +562,10 @@ const BranchList = () => {
           </button>
         </div>
 
-        {/* =====================================================
-            MAIN CARD
-        ===================================================== */}
+        {/* MAIN CARD */}
 
-        <div className="overflow-hidden rounded-xl border border-border bg-white shadow-sm">
-
-          {/* =====================================================
-              SEARCH
-          ===================================================== */}
+        <div className="relative rounded-xl border border-border bg-white shadow-sm">
+          {/* SEARCH */}
 
           <div className="flex flex-col gap-4 border-b border-border p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5">
             <div>
@@ -575,10 +575,7 @@ const BranchList = () => {
 
               <p className="mt-0.5 text-xs text-text-muted">
                 {filteredBranches.length}{" "}
-                {filteredBranches.length === 1
-                  ? "branch"
-                  : "branches"}{" "}
-                found
+                {filteredBranches.length === 1 ? "branch" : "branches"} found
               </p>
             </div>
 
@@ -598,9 +595,7 @@ const BranchList = () => {
             </div>
           </div>
 
-          {/* =====================================================
-              ERROR
-          ===================================================== */}
+          {/* ERROR */}
 
           {error && (
             <div className="m-5 flex items-center gap-3 rounded-lg border border-danger/20 bg-danger/5 px-4 py-3 text-sm text-danger">
@@ -609,47 +604,36 @@ const BranchList = () => {
             </div>
           )}
 
-          {/* =====================================================
-              TABLE
-          ===================================================== */}
+          {/* TABLE */}
 
-          <div className="overflow-hidden">
-            <table className="w-full table-fixed border-collapse">
-
+          <div className="overflow-x-auto">
+            <table className="relative w-full min-w-[900px] table-fixed border-collapse">
               <thead>
                 <tr className="border-b border-border bg-surface-grey">
-
-                  {/* Branch Name */}
                   <th className="w-[20%] px-3 py-3 text-left text-[11px] font-semibold uppercase tracking-wide text-text-secondary">
                     Branch Name
                   </th>
 
-                  {/* Phone */}
                   <th className="w-[12%] px-3 py-3 text-left text-[11px] font-semibold uppercase tracking-wide text-text-secondary">
                     Phone
                   </th>
 
-                  {/* Email */}
                   <th className="w-[18%] px-3 py-3 text-left text-[11px] font-semibold uppercase tracking-wide text-text-secondary">
                     Email
                   </th>
 
-                  {/* Address */}
                   <th className="w-[20%] px-3 py-3 text-left text-[11px] font-semibold uppercase tracking-wide text-text-secondary">
                     Address
                   </th>
 
-                  {/* Expiry Date */}
                   <th className="w-[13%] px-3 py-3 text-left text-[11px] font-semibold uppercase tracking-wide text-text-secondary">
                     Expiry Date
                   </th>
 
-                  {/* Created By */}
                   <th className="w-[10%] px-3 py-3 text-left text-[11px] font-semibold uppercase tracking-wide text-text-secondary">
                     Created By
                   </th>
 
-                  {/* Action */}
                   <th className="w-[7%] px-2 py-3 text-center text-[11px] font-semibold uppercase tracking-wide text-text-secondary">
                     Action
                   </th>
@@ -657,51 +641,28 @@ const BranchList = () => {
               </thead>
 
               <tbody className="divide-y divide-border">
-
-                {/* =================================================
-                    LOADING
-                ================================================= */}
-
                 {loading ? (
                   <tr>
-                    <td
-                      colSpan={7}
-                      className="px-4 py-12 text-center"
-                    >
+                    <td colSpan={7} className="px-4 py-12 text-center">
                       <div className="flex items-center justify-center gap-2 text-text-secondary">
-                        <Loader2
-                          size={20}
-                          className="animate-spin"
-                        />
+                        <Loader2 size={20} className="animate-spin" />
                         Loading branches...
                       </div>
                     </td>
                   </tr>
-
                 ) : currentBranches.length > 0 ? (
-
-                  /* =================================================
-                     BRANCH ROWS
-                  ================================================= */
-
                   currentBranches.map((branch) => {
-                    const expiryStatus = getExpiryStatus(
-                      branch.expiry_date,
-                    );
+                    const expiryStatus = getExpiryStatus(branch.expiry_date);
 
                     return (
                       <tr
                         key={branch.id}
                         className="transition hover:bg-surface-dark"
                       >
-
-                        {/* =================================================
-                            BRANCH NAME
-                        ================================================= */}
+                        {/* BRANCH NAME */}
 
                         <td className="px-3 py-3">
                           <div className="flex min-w-0 items-center gap-2">
-
                             <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-xs font-semibold text-primary">
                               {(branch.branch_name || "B")
                                 .charAt(0)
@@ -711,9 +672,7 @@ const BranchList = () => {
                             <div className="min-w-0">
                               <p
                                 className="truncate text-xs font-medium text-text-primary"
-                                title={
-                                  branch.branch_name || "-"
-                                }
+                                title={branch.branch_name || "-"}
                               >
                                 {branch.branch_name || "-"}
                               </p>
@@ -725,9 +684,7 @@ const BranchList = () => {
                           </div>
                         </td>
 
-                        {/* =================================================
-                            PHONE
-                        ================================================= */}
+                        {/* PHONE */}
 
                         <td className="px-3 py-3">
                           <div
@@ -738,9 +695,7 @@ const BranchList = () => {
                           </div>
                         </td>
 
-                        {/* =================================================
-                            EMAIL
-                        ================================================= */}
+                        {/* EMAIL */}
 
                         <td className="px-3 py-3">
                           <div
@@ -751,9 +706,7 @@ const BranchList = () => {
                           </div>
                         </td>
 
-                        {/* =================================================
-                            ADDRESS
-                        ================================================= */}
+                        {/* ADDRESS */}
 
                         <td className="px-3 py-3">
                           <div
@@ -764,16 +717,12 @@ const BranchList = () => {
                           </div>
                         </td>
 
-                        {/* =================================================
-                            EXPIRY DATE
-                        ================================================= */}
+                        {/* EXPIRY DATE */}
 
                         <td className="px-3 py-3">
                           <div>
                             <p className="whitespace-nowrap text-xs font-medium text-text-primary">
-                              {formatDate(
-                                branch.expiry_date,
-                              )}
+                              {formatDate(branch.expiry_date)}
                             </p>
 
                             <span
@@ -784,123 +733,50 @@ const BranchList = () => {
                           </div>
                         </td>
 
-                        {/* =================================================
-                            CREATED BY
-                        ================================================= */}
+                        {/* CREATED BY */}
 
                         <td className="px-3 py-3">
                           <span
                             className="block truncate text-xs text-text-secondary"
-                            title={
-                              branch.created_by || "-"
-                            }
+                            title={branch.created_by || "-"}
                           >
                             {branch.created_by || "-"}
                           </span>
                         </td>
 
-                        {/* =================================================
-                            ACTIONS
-                        ================================================= */}
+                        {/* ACTIONS */}
 
-                        <td className="px-2 py-3 text-center">
-                          <div className="relative inline-block">
-
+                        <td className="px-2 py-3">
+                          <div
+                            className="relative flex justify-center"
+                            data-action-dropdown
+                          >
                             <button
                               type="button"
-                              onClick={() =>
-                                setOpenActionId((prev) =>
-                                  prev === branch.id
-                                    ? null
-                                    : branch.id,
+                              onClick={(e) =>
+                                toggleActionDropdown(
+                                  branch.id,
+                                  e.currentTarget,
                                 )
                               }
                               className="inline-flex h-8 w-8 items-center justify-center rounded-md text-text-secondary transition hover:bg-surface-grey hover:text-primary"
                               aria-label={`Actions for ${
-                                branch.branch_name ||
-                                "branch"
+                                branch.branch_name || "branch"
                               }`}
                             >
                               <MoreVertical size={16} />
                             </button>
-
-                            {/* =================================================
-                                ACTION DROPDOWN
-                            ================================================= */}
-
-                            {openActionId === branch.id && (
-                              <div className="absolute right-0 top-full z-50 mt-2 w-40 overflow-hidden rounded-lg border border-border bg-white py-1 text-left shadow-lg">
-
-                                {/* Edit */}
-
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    handleEditClick(branch)
-                                  }
-                                  className="flex w-full items-center gap-2 px-3 py-2.5 text-sm text-text-primary transition hover:bg-surface-grey hover:text-primary"
-                                >
-                                  <Pencil size={15} />
-                                  Edit
-                                </button>
-
-                                {/* Permission */}
-
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setOpenActionId(null);
-                                    handlePermissionClick(
-                                      branch,
-                                    );
-                                  }}
-                                  className="flex w-full items-center gap-2 px-3 py-2.5 text-sm text-text-primary transition hover:bg-surface-grey hover:text-primary"
-                                >
-                                  Permission
-                                </button>
-
-                                {/* Delete */}
-
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    handleDeleteBranch(
-                                      branch,
-                                    )
-                                  }
-                                  disabled={deleteLoading}
-                                  className="flex w-full items-center gap-2 px-3 py-2.5 text-sm text-danger transition hover:bg-danger/5 disabled:cursor-not-allowed disabled:opacity-50"
-                                >
-                                  <Trash2 size={15} />
-                                  Delete
-                                </button>
-
-                              </div>
-                            )}
                           </div>
                         </td>
                       </tr>
                     );
                   })
-
                 ) : (
-
-                  /* =================================================
-                     EMPTY STATE
-                  ================================================= */
-
                   <tr>
-                    <td
-                      colSpan={7}
-                      className="px-4 py-12 text-center"
-                    >
+                    <td colSpan={7} className="px-4 py-12 text-center">
                       <div className="flex flex-col items-center">
-
                         <div className="mb-3 flex h-11 w-11 items-center justify-center rounded-full bg-surface-grey">
-                          <Search
-                            size={20}
-                            className="text-text-muted"
-                          />
+                          <Search size={20} className="text-text-muted" />
                         </div>
 
                         <h3 className="text-sm font-semibold text-text-primary">
@@ -922,15 +798,10 @@ const BranchList = () => {
             </table>
           </div>
 
-          {/* =====================================================
-              PAGINATION + FOOTER
-          ===================================================== */}
+          {/* PAGINATION + FOOTER */}
 
           {!loading && filteredBranches.length > 0 && (
             <div className="flex flex-col gap-3 border-t border-border bg-surface-dark px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-
-              {/* Showing */}
-
               <p className="text-xs text-text-muted">
                 Showing{" "}
                 <span className="font-medium text-text-secondary">
@@ -938,10 +809,7 @@ const BranchList = () => {
                 </span>{" "}
                 to{" "}
                 <span className="font-medium text-text-secondary">
-                  {Math.min(
-                    endIndex,
-                    filteredBranches.length,
-                  )}
+                  {Math.min(endIndex, filteredBranches.length)}
                 </span>{" "}
                 of{" "}
                 <span className="font-medium text-text-secondary">
@@ -950,25 +818,16 @@ const BranchList = () => {
                 branches
               </p>
 
-              {/* Pagination */}
-
               {totalPages > 1 && (
                 <div className="flex items-center gap-1">
-
-                  {/* Previous */}
-
                   <button
                     type="button"
-                    onClick={() =>
-                      goToPage(currentPage - 1)
-                    }
+                    onClick={() => goToPage(currentPage - 1)}
                     disabled={currentPage === 1}
                     className="rounded-lg border border-border bg-white px-3 py-1.5 text-xs font-medium text-text-secondary transition hover:bg-surface-grey disabled:cursor-not-allowed disabled:opacity-40"
                   >
                     Previous
                   </button>
-
-                  {/* Page Numbers */}
 
                   {Array.from(
                     { length: totalPages },
@@ -988,16 +847,10 @@ const BranchList = () => {
                     </button>
                   ))}
 
-                  {/* Next */}
-
                   <button
                     type="button"
-                    onClick={() =>
-                      goToPage(currentPage + 1)
-                    }
-                    disabled={
-                      currentPage === totalPages
-                    }
+                    onClick={() => goToPage(currentPage + 1)}
+                    disabled={currentPage === totalPages}
                     className="rounded-lg border border-border bg-white px-3 py-1.5 text-xs font-medium text-text-secondary transition hover:bg-surface-grey disabled:cursor-not-allowed disabled:opacity-40"
                   >
                     Next
@@ -1009,9 +862,57 @@ const BranchList = () => {
         </div>
       </div>
 
-      {/* =====================================================
-          EDIT MODAL
-      ===================================================== */}
+      {/* FIXED ACTION DROPDOWN — OUTSIDE EVERY OVERFLOW CONTAINER */}
+
+      {openActionId !== null && dropdownPos && (
+        <div
+          data-action-dropdown
+          className="fixed z-[9999] w-40 overflow-hidden rounded-lg border border-border bg-white py-1 text-left shadow-lg"
+          style={{
+            top: dropdownPos.top,
+            left: dropdownPos.left,
+            minWidth: "10rem",
+          }}
+        >
+          {(() => {
+            const branch = branches.find((b) => b.id === openActionId);
+            if (!branch) return null;
+
+            return (
+              <>
+                <button
+                  type="button"
+                  onClick={() => handleEditClick(branch)}
+                  className="flex w-full items-center gap-2 px-3 py-2.5 text-sm text-text-primary transition hover:bg-surface-grey hover:text-primary"
+                >
+                  <Pencil size={15} />
+                  Edit
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => handlePermissionClick(branch)}
+                  className="flex w-full items-center gap-2 px-3 py-2.5 text-sm text-text-primary transition hover:bg-surface-grey hover:text-primary"
+                >
+                  Permission
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => handleDeleteBranch(branch)}
+                  disabled={deleteLoading}
+                  className="flex w-full items-center gap-2 px-3 py-2.5 text-sm text-danger transition hover:bg-danger/5 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <Trash2 size={15} />
+                  Delete
+                </button>
+              </>
+            );
+          })()}
+        </div>
+      )}
+
+      {/* EDIT MODAL */}
 
       {editModalOpen && (
         <div
@@ -1026,9 +927,6 @@ const BranchList = () => {
             className="w-full max-w-lg overflow-hidden rounded-xl bg-white shadow-2xl"
             onClick={(e) => e.stopPropagation()}
           >
-
-            {/* Header */}
-
             <div className="flex items-center justify-between border-b border-border px-5 py-4">
               <div>
                 <h2 className="text-lg font-semibold text-palette-dark">
@@ -1045,30 +943,21 @@ const BranchList = () => {
               <button
                 type="button"
                 disabled={editLoading}
-                onClick={() =>
-                  setEditModalOpen(false)
-                }
+                onClick={() => setEditModalOpen(false)}
                 className="flex h-8 w-8 items-center justify-center rounded-md text-xl text-text-secondary transition hover:bg-surface-grey hover:text-primary disabled:opacity-50"
               >
                 ×
               </button>
             </div>
 
-            {/* Form */}
-
             <form onSubmit={handleSaveEdit}>
               <div className="space-y-4 p-5">
-
-                {/* Error */}
-
                 {editError && (
                   <div className="flex items-center gap-3 rounded-lg border border-danger/20 bg-danger/5 px-4 py-3 text-sm text-danger">
                     <AlertCircle size={18} />
                     <span>{editError}</span>
                   </div>
                 )}
-
-                {/* Branch Name */}
 
                 <div>
                   <label className="mb-1.5 block text-sm font-medium text-text-primary">
@@ -1086,8 +975,6 @@ const BranchList = () => {
                   />
                 </div>
 
-                {/* Phone */}
-
                 <div>
                   <label className="mb-1.5 block text-sm font-medium text-text-primary">
                     Phone
@@ -1102,8 +989,6 @@ const BranchList = () => {
                     placeholder="Enter phone number"
                   />
                 </div>
-
-                {/* Email */}
 
                 <div>
                   <label className="mb-1.5 block text-sm font-medium text-text-primary">
@@ -1120,8 +1005,6 @@ const BranchList = () => {
                   />
                 </div>
 
-                {/* Address */}
-
                 <div>
                   <label className="mb-1.5 block text-sm font-medium text-text-primary">
                     Address
@@ -1136,8 +1019,6 @@ const BranchList = () => {
                     placeholder="Enter branch address"
                   />
                 </div>
-
-                {/* Expiry Date */}
 
                 <div>
                   <label className="mb-1.5 block text-sm font-medium text-text-primary">
@@ -1154,16 +1035,11 @@ const BranchList = () => {
                 </div>
               </div>
 
-              {/* Footer */}
-
               <div className="flex items-center justify-end gap-2 border-t border-border bg-surface-dark px-5 py-3">
-
                 <button
                   type="button"
                   disabled={editLoading}
-                  onClick={() =>
-                    setEditModalOpen(false)
-                  }
+                  onClick={() => setEditModalOpen(false)}
                   className="rounded-lg border border-border bg-white px-4 py-2 text-sm font-medium text-text-primary transition hover:bg-surface-grey disabled:opacity-50"
                 >
                   Cancel
@@ -1175,15 +1051,10 @@ const BranchList = () => {
                   className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white transition hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   {editLoading && (
-                    <Loader2
-                      size={15}
-                      className="animate-spin"
-                    />
+                    <Loader2 size={15} className="animate-spin" />
                   )}
 
-                  {editLoading
-                    ? "Saving..."
-                    : "Save Changes"}
+                  {editLoading ? "Saving..." : "Save Changes"}
                 </button>
               </div>
             </form>
@@ -1191,24 +1062,17 @@ const BranchList = () => {
         </div>
       )}
 
-      {/* =====================================================
-          PERMISSION MODAL
-      ===================================================== */}
+      {/* PERMISSION MODAL */}
 
       {permissionModalOpen && (
         <div
           className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 px-4 py-6"
-          onClick={() =>
-            setPermissionModalOpen(false)
-          }
+          onClick={() => setPermissionModalOpen(false)}
         >
           <div
             className="w-full max-w-lg overflow-hidden rounded-xl bg-white shadow-2xl"
             onClick={(e) => e.stopPropagation()}
           >
-
-            {/* Header */}
-
             <div className="flex items-center justify-between border-b border-border px-5 py-4">
               <div>
                 <h2 className="text-lg font-semibold text-palette-dark">
@@ -1224,9 +1088,7 @@ const BranchList = () => {
 
               <button
                 type="button"
-                onClick={() =>
-                  setPermissionModalOpen(false)
-                }
+                onClick={() => setPermissionModalOpen(false)}
                 className="flex h-8 w-8 items-center justify-center rounded-md text-xl text-text-secondary transition hover:bg-surface-grey hover:text-primary"
                 aria-label="Close modal"
               >
@@ -1234,18 +1096,10 @@ const BranchList = () => {
               </button>
             </div>
 
-            {/* Body */}
-
             <div className="max-h-[60vh] overflow-y-auto p-5">
-
-              {/* Loading */}
-
               {permissionLoading && (
                 <div className="flex flex-col items-center justify-center py-10">
-                  <Loader2
-                    size={28}
-                    className="animate-spin text-primary"
-                  />
+                  <Loader2 size={28} className="animate-spin text-primary" />
 
                   <p className="mt-3 text-sm text-text-secondary">
                     Loading permissions...
@@ -1253,92 +1107,66 @@ const BranchList = () => {
                 </div>
               )}
 
-              {/* Error */}
+              {!permissionLoading && permissionError && (
+                <div className="flex items-center gap-3 rounded-lg border border-danger/20 bg-danger/5 px-4 py-3 text-sm text-danger">
+                  <AlertCircle size={18} />
+                  <span>{permissionError}</span>
+                </div>
+              )}
 
-              {!permissionLoading &&
-                permissionError && (
-                  <div className="flex items-center gap-3 rounded-lg border border-danger/20 bg-danger/5 px-4 py-3 text-sm text-danger">
-                    <AlertCircle size={18} />
-                    <span>{permissionError}</span>
-                  </div>
-                )}
+              {!permissionLoading && !permissionError && menus.length > 0 && (
+                <div className="space-y-2">
+                  {menus.map((menu) => (
+                    <label
+                      key={menu.id}
+                      className="flex cursor-pointer items-center gap-3 rounded-lg border border-border bg-surface-grey px-4 py-3 transition hover:bg-surface-dark"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={selectedPermissions.includes(Number(menu.id))}
+                        onChange={() => handlePermissionChange(menu.id)}
+                        className="h-4 w-4 cursor-pointer accent-primary"
+                      />
 
-              {/* Menus */}
+                      <div className="flex-1">
+                        <p className="text-sm font-medium text-text-primary">
+                          {menu.menu}
+                        </p>
 
-              {!permissionLoading &&
-                !permissionError &&
-                menus.length > 0 && (
-                  <div className="space-y-2">
-                    {menus.map((menu) => (
-                      <label
-                        key={menu.id}
-                        className="flex cursor-pointer items-center gap-3 rounded-lg border border-border bg-surface-grey px-4 py-3 transition hover:bg-surface-dark"
-                      >
-                        <input
-                          type="checkbox"
-                          checked={selectedPermissions.includes(
-                            Number(menu.id),
-                          )}
-                          onChange={() =>
-                            handlePermissionChange(
-                              menu.id,
-                            )
-                          }
-                          className="h-4 w-4 cursor-pointer accent-primary"
-                        />
-
-                        <div className="flex-1">
-                          <p className="text-sm font-medium text-text-primary">
-                            {menu.menu}
+                        {menu.href && (
+                          <p className="mt-0.5 text-xs text-text-muted">
+                            {menu.href}
                           </p>
+                        )}
+                      </div>
+                    </label>
+                  ))}
+                </div>
+              )}
 
-                          {menu.href && (
-                            <p className="mt-0.5 text-xs text-text-muted">
-                              {menu.href}
-                            </p>
-                          )}
-                        </div>
-                      </label>
-                    ))}
-                  </div>
-                )}
+              {!permissionLoading && !permissionError && menus.length === 0 && (
+                <div className="py-10 text-center">
+                  <p className="text-sm font-medium text-text-primary">
+                    No permissions found
+                  </p>
 
-              {/* No Menus */}
-
-              {!permissionLoading &&
-                !permissionError &&
-                menus.length === 0 && (
-                  <div className="py-10 text-center">
-                    <p className="text-sm font-medium text-text-primary">
-                      No permissions found
-                    </p>
-
-                    <p className="mt-1 text-xs text-text-muted">
-                      No menu permissions are available.
-                    </p>
-                  </div>
-                )}
+                  <p className="mt-1 text-xs text-text-muted">
+                    No menu permissions are available.
+                  </p>
+                </div>
+              )}
             </div>
 
-            {/* Footer */}
-
             <div className="flex items-center justify-between border-t border-border bg-surface-dark px-5 py-3">
-
               <p className="text-xs text-text-muted">
                 {selectedPermissions.length} permission
-                {selectedPermissions.length !== 1
-                  ? "s"
-                  : ""}{" "}
-                selected
+                {selectedPermissions.length !== 1 ? "s" : ""} selected
               </p>
 
               <div className="flex gap-2">
-
                 <button
                   type="button"
-                  onClick={() =>
-                    setPermissionModalOpen(false)
-                  }
+                  onClick={() => setPermissionModalOpen(false)}
                   className="rounded-lg border border-border bg-white px-4 py-2 text-sm font-medium text-text-primary transition hover:bg-surface-grey"
                 >
                   Close
@@ -1350,11 +1178,8 @@ const BranchList = () => {
                   disabled={permissionSaving}
                   className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white transition hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-60"
                 >
-                  {permissionSaving
-                    ? "Saving..."
-                    : "Save Permissions"}
+                  {permissionSaving ? "Saving..." : "Save Permissions"}
                 </button>
-
               </div>
             </div>
           </div>

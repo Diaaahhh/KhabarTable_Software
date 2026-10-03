@@ -197,7 +197,6 @@ router.get("/designations", async (req, res) => {
           code,
           name
         FROM organization_designation
-        WHERE status = 'active'
         ORDER BY name ASC
       `,
     );
@@ -211,7 +210,7 @@ router.get("/designations", async (req, res) => {
 
     return res.status(500).json({
       success: false,
-      message: "Failed to fetch designations.",
+      message: error.message || "Failed to fetch designations.",
     });
   }
 });
@@ -220,13 +219,6 @@ router.get("/designations", async (req, res) => {
 |--------------------------------------------------------------------------
 | GET COMPANY BY ID  (used by the Edit form)
 |--------------------------------------------------------------------------
-| GET /api/registration/company/:id
-|--------------------------------------------------------------------------
-|
-| Returns:
-|   id, company_id, company_name, name, email, phone, designation,
-|   branchCount, restaurant_type, address, logo
-|
 */
 router.get("/company/:id", async (req, res) => {
   try {
@@ -286,15 +278,8 @@ router.get("/company/:id", async (req, res) => {
 
 /*
 |--------------------------------------------------------------------------
-| UPDATE COMPANY  (used by the Edit form)
+| UPDATE COMPANY
 |--------------------------------------------------------------------------
-| PUT /api/registration/company/:id
-|--------------------------------------------------------------------------
-|
-| Body (JSON):
-|   companyName, name, email, phone, address,
-|   restaurantType, branchCount, designation
-|
 */
 router.put("/company/:id", async (req, res) => {
   let connection;
@@ -319,8 +304,6 @@ router.put("/company/:id", async (req, res) => {
       branchCount,
       designation,
     } = req.body;
-
-    /* ---------------- Validate ---------------- */
 
     if (
       !companyName ||
@@ -363,8 +346,6 @@ router.put("/company/:id", async (req, res) => {
       });
     }
 
-    /* ---------------- Restaurant types ---------------- */
-
     let restaurantTypeIds;
 
     try {
@@ -404,12 +385,8 @@ router.put("/company/:id", async (req, res) => {
 
     restaurantTypeIds = [...new Set(restaurantTypeIds)];
 
-    /* ---------------- Database ---------------- */
-
     connection = await db.getConnection();
     await connection.beginTransaction();
-
-    /* ---------------- Ensure company exists ---------------- */
 
     const [existingRows] = await connection.execute(
       `
@@ -431,14 +408,11 @@ router.put("/company/:id", async (req, res) => {
       });
     }
 
-    /* ---------------- Validate designation ---------------- */
-
     const [designationRows] = await connection.execute(
       `
         SELECT id
         FROM organization_designation
         WHERE id = ?
-          AND status = 'active'
         LIMIT 1
       `,
       [designationId],
@@ -452,8 +426,6 @@ router.put("/company/:id", async (req, res) => {
         message: "Selected designation does not exist.",
       });
     }
-
-    /* ---------------- Validate restaurant categories ---------------- */
 
     const placeholders = restaurantTypeIds.map(() => "?").join(", ");
 
@@ -483,8 +455,6 @@ router.put("/company/:id", async (req, res) => {
         invalidRestaurantTypeIds: invalidCategoryIds,
       });
     }
-
-    /* ---------------- Duplicate email / phone ---------------- */
 
     const [emailRows] = await connection.execute(
       `
@@ -542,8 +512,6 @@ router.put("/company/:id", async (req, res) => {
         message: "This phone number is already registered.",
       });
     }
-
-    /* ---------------- Update company ---------------- */
 
     await connection.execute(
       `
@@ -604,8 +572,6 @@ router.put("/company/:id", async (req, res) => {
 /*
 |--------------------------------------------------------------------------
 | COMPANY REGISTRATION
-|--------------------------------------------------------------------------
-| POST /api/registration/company
 |--------------------------------------------------------------------------
 */
 router.post("/company", upload.single("logo"), async (req, res) => {
@@ -673,13 +639,11 @@ router.post("/company", upload.single("logo"), async (req, res) => {
     connection = await db.getConnection();
     await connection.beginTransaction();
 
-    /* Designation check */
     const [designationRows] = await connection.execute(
       `
         SELECT id
         FROM organization_designation
         WHERE id = ?
-          AND status = 'active'
         LIMIT 1
       `,
       [designationId],
@@ -702,7 +666,6 @@ router.post("/company", upload.single("logo"), async (req, res) => {
       });
     }
 
-    /* Restaurant types */
     let restaurantTypeIds;
 
     try {
@@ -806,7 +769,6 @@ router.post("/company", upload.single("logo"), async (req, res) => {
       });
     }
 
-    /* Duplicate email */
     const [emailRows] = await connection.execute(
       `
         SELECT id
@@ -819,7 +781,6 @@ router.post("/company", upload.single("logo"), async (req, res) => {
 
     const emailExists = emailRows.length > 0;
 
-    /* Duplicate phone */
     const [phoneRows] = await connection.execute(
       `
         SELECT id
@@ -951,7 +912,7 @@ router.post("/company", upload.single("logo"), async (req, res) => {
 
     const newUserId = result.insertId;
 
-    const defaultMenuIds = [6, 9, 10, 11, 12, 13, 14, 15, 17, 19, 20];
+    const defaultMenuIds = [6, 9, 10, 11, 12, 13, 14, 15, 17, 19, 20, 21];
 
     const menuValues = defaultMenuIds.map(() => "(?, ?)").join(", ");
 
@@ -1060,6 +1021,10 @@ router.post("/company", upload.single("logo"), async (req, res) => {
 |--------------------------------------------------------------------------
 | POST /api/registration/branch
 |--------------------------------------------------------------------------
+|
+| Now reads `name` and `designation` from the form and inserts both
+| into the users table.
+|--------------------------------------------------------------------------
 */
 router.post("/branch", upload.single("logo"), async (req, res) => {
   let connection;
@@ -1128,9 +1093,25 @@ router.post("/branch", upload.single("logo"), async (req, res) => {
       });
     }
 
-    const { branchName, email, phone, password, location } = req.body;
+    const {
+      branchName,
+      name,
+      email,
+      phone,
+      password,
+      designation,
+      location,
+    } = req.body;
 
-    if (!branchName || !email || !phone || !password || !location) {
+    if (
+      !branchName ||
+      !name ||
+      !email ||
+      !phone ||
+      !password ||
+      !designation ||
+      !location
+    ) {
       if (req.file) {
         try {
           if (fs.existsSync(req.file.path)) {
@@ -1148,9 +1129,46 @@ router.post("/branch", upload.single("logo"), async (req, res) => {
     }
 
     const cleanBranchName = branchName.trim();
+    const cleanName = String(name).trim();
     const cleanEmail = email.trim();
     const cleanPhone = phone.trim();
     const cleanLocation = location.trim();
+
+    if (!cleanName) {
+      if (req.file) {
+        try {
+          if (fs.existsSync(req.file.path)) {
+            fs.unlinkSync(req.file.path);
+          }
+        } catch (fileError) {
+          console.error("Failed to delete uploaded logo:", fileError);
+        }
+      }
+
+      return res.status(400).json({
+        success: false,
+        message: "Name is required.",
+      });
+    }
+
+    const designationId = Number(designation);
+
+    if (!Number.isInteger(designationId) || designationId < 1) {
+      if (req.file) {
+        try {
+          if (fs.existsSync(req.file.path)) {
+            fs.unlinkSync(req.file.path);
+          }
+        } catch (fileError) {
+          console.error("Failed to delete uploaded logo:", fileError);
+        }
+      }
+
+      return res.status(400).json({
+        success: false,
+        message: "Designation is required.",
+      });
+    }
 
     const emailAtIndex = cleanEmail.indexOf("@");
 
@@ -1204,6 +1222,36 @@ router.post("/branch", upload.single("logo"), async (req, res) => {
 
     connection = await db.getConnection();
     await connection.beginTransaction();
+
+    /* Verify designation exists */
+    const [designationRows] = await connection.execute(
+      `
+        SELECT id
+        FROM organization_designation
+        WHERE id = ?
+        LIMIT 1
+      `,
+      [designationId],
+    );
+
+    if (designationRows.length === 0) {
+      await connection.rollback();
+
+      if (req.file) {
+        try {
+          if (fs.existsSync(req.file.path)) {
+            fs.unlinkSync(req.file.path);
+          }
+        } catch (fileError) {
+          console.error("Failed to delete uploaded logo:", fileError);
+        }
+      }
+
+      return res.status(400).json({
+        success: false,
+        message: "Selected designation does not exist.",
+      });
+    }
 
     const [companyRows] = await connection.execute(
       `
@@ -1357,14 +1405,17 @@ router.post("/branch", upload.single("logo"), async (req, res) => {
 
     const hashedPassword = await bcrypt.hash(password, 12);
 
+    /* Insert branch with name and designation */
     const [result] = await connection.execute(
       `
         INSERT INTO users (
           company_id,
           company_name,
+          name,
           phone,
           email,
           role,
+          designation,
           branchCount,
           password,
           software_api_key,
@@ -1373,14 +1424,16 @@ router.post("/branch", upload.single("logo"), async (req, res) => {
           logo,
           created_by
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `,
       [
         companyId,
         cleanBranchName,
+        cleanName,
         cleanPhone,
         cleanEmail,
         4,
+        designationId,
         null,
         hashedPassword,
         softwareApiKey,
@@ -1413,6 +1466,8 @@ router.post("/branch", upload.single("logo"), async (req, res) => {
         companyId,
         companyName,
         branchName: cleanBranchName,
+        name: cleanName,
+        designation: designationId,
         email: cleanEmail,
         phone: cleanPhone,
         role: 4,
@@ -1515,8 +1570,6 @@ router.get("/restaurant-categories", async (req, res) => {
 /*
 |--------------------------------------------------------------------------
 | GET BRANCH COUNT INFORMATION
-|--------------------------------------------------------------------------
-| GET /api/registration/branch-count
 |--------------------------------------------------------------------------
 */
 router.get("/branch-count", async (req, res) => {

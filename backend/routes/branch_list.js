@@ -3,6 +3,8 @@ import db from "../db.js";
 import multer from "multer";
 import path from "path";
 import fs from "fs";
+import bcrypt from "bcryptjs";
+
 const router = express.Router();
 
 // =========================================================
@@ -24,7 +26,7 @@ const storage = multer.diskStorage({
     const extension = path.extname(file.originalname);
 
     const filename = `branch-${Date.now()}-${Math.round(
-      Math.random() * 1e9
+      Math.random() * 1e9,
     )}${extension}`;
 
     cb(null, filename);
@@ -48,13 +50,14 @@ const upload = multer({
 
     if (!allowedTypes.includes(file.mimetype)) {
       return cb(
-        new Error("Only JPG, JPEG, PNG and WEBP images are allowed.")
+        new Error("Only JPG, JPEG, PNG and WEBP images are allowed."),
       );
     }
 
     cb(null, true);
   },
 });
+
 /*
   Get logged-in user information from cookie
 */
@@ -81,7 +84,6 @@ function getUserFromCookie(req) {
   return null;
 }
 
-
 /*
   GET /api/branches
 
@@ -90,7 +92,6 @@ function getUserFromCookie(req) {
 */
 router.get("/", async (req, res) => {
   try {
-    // Get logged-in user from cookie
     const user = getUserFromCookie(req);
 
     if (!user) {
@@ -102,15 +103,6 @@ router.get("/", async (req, res) => {
 
     const company_id = user.company_id;
 
-    /*
-      Fetch branches from users table.
-
-      b.created_by contains the ID of the user
-      who created the branch.
-
-      We match that ID with creator.id and
-      fetch the creator's email.
-    */
     const [branches] = await db.query(
       `
       SELECT
@@ -136,7 +128,7 @@ router.get("/", async (req, res) => {
 
       ORDER BY b.id DESC
       `,
-      [company_id]
+      [company_id],
     );
 
     return res.status(200).json({
@@ -154,28 +146,11 @@ router.get("/", async (req, res) => {
   }
 });
 
-
 /*
   GET /api/branches/:branchId/permissions
-
-  Fetch all menu permissions assigned to
-  the logged-in user.
-
-  Relationship:
-
-  cookie.id
-      ↓
-  user_user_menu.user_id
-      ↓
-  user_user_menu.user_menu_id
-      ↓
-  user_menu.id
-      ↓
-  user_menu.menu
 */
 router.get("/:branchId/permissions", async (req, res) => {
   try {
-    // Get logged-in user from cookie
     const user = getUserFromCookie(req);
 
     if (!user) {
@@ -195,11 +170,6 @@ router.get("/:branchId/permissions", async (req, res) => {
       });
     }
 
-    /*
-      STEP 1:
-      Check that the selected branch belongs to the
-      same company as the logged-in user and is role = 4.
-    */
     const [branchRows] = await db.query(
       `
       SELECT id
@@ -209,7 +179,7 @@ router.get("/:branchId/permissions", async (req, res) => {
         AND role = 4
       LIMIT 1
       `,
-      [branchId, user.company_id]
+      [branchId, user.company_id],
     );
 
     if (branchRows.length === 0) {
@@ -219,13 +189,6 @@ router.get("/:branchId/permissions", async (req, res) => {
       });
     }
 
-    /*
-      STEP 2:
-      Get the menus assigned to the LOGGED-IN USER.
-
-      These are the menus that should be displayed
-      as available options in the modal.
-    */
     const [menus] = await db.query(
       `
       SELECT
@@ -240,27 +203,20 @@ router.get("/:branchId/permissions", async (req, res) => {
       WHERE uum.user_id = ?
       ORDER BY um.parent_id ASC, um.id ASC
       `,
-      [loggedInUserId]
+      [loggedInUserId],
     );
 
-    /*
-      STEP 3:
-      Get the menu IDs currently assigned to the
-      SELECTED BRANCH.
-
-      These IDs determine which checkboxes are checked.
-    */
     const [assignedRows] = await db.query(
       `
       SELECT user_menu_id
       FROM user_user_menu
       WHERE user_id = ?
       `,
-      [branchId]
+      [branchId],
     );
 
-    const selectedPermissionIds = assignedRows.map(
-      (row) => Number(row.user_menu_id)
+    const selectedPermissionIds = assignedRows.map((row) =>
+      Number(row.user_menu_id),
     );
 
     return res.status(200).json({
@@ -281,16 +237,10 @@ router.get("/:branchId/permissions", async (req, res) => {
 });
 
 /*
- * POST /api/branches/:branchId/permissions
- *
- * Save menu permissions for the selected branch.
- *
- * branchId      -> user_user_menu.user_id
- * selected menu -> user_user_menu.user_menu_id
- */
+  POST /api/branches/:branchId/permissions
+*/
 router.post("/:branchId/permissions", async (req, res) => {
   try {
-    // Get logged-in user from cookie
     const user = getUserFromCookie(req);
 
     if (!user) {
@@ -303,7 +253,6 @@ router.post("/:branchId/permissions", async (req, res) => {
     const branch_id = Number(req.params.branchId);
     const { menu_ids } = req.body;
 
-    // Validate branch ID
     if (!Number.isInteger(branch_id)) {
       return res.status(400).json({
         success: false,
@@ -311,7 +260,6 @@ router.post("/:branchId/permissions", async (req, res) => {
       });
     }
 
-    // Validate menu IDs
     if (!Array.isArray(menu_ids)) {
       return res.status(400).json({
         success: false,
@@ -319,21 +267,14 @@ router.post("/:branchId/permissions", async (req, res) => {
       });
     }
 
-    // Convert menu IDs to numbers and remove duplicates
     const menuIds = [
       ...new Set(
         menu_ids
           .map((id) => Number(id))
-          .filter((id) => Number.isInteger(id) && id > 0)
+          .filter((id) => Number.isInteger(id) && id > 0),
       ),
     ];
 
-    /*
-     * Check that the selected branch:
-     * 1. Exists
-     * 2. Belongs to the logged-in user's company
-     * 3. Is actually a branch (role = 4)
-     */
     const [branchRows] = await db.query(
       `
       SELECT id
@@ -343,7 +284,7 @@ router.post("/:branchId/permissions", async (req, res) => {
         AND role = 4
       LIMIT 1
       `,
-      [branch_id, user.company_id]
+      [branch_id, user.company_id],
     );
 
     if (branchRows.length === 0) {
@@ -353,10 +294,6 @@ router.post("/:branchId/permissions", async (req, res) => {
       });
     }
 
-    /*
-     * Check that all selected menu IDs exist
-     * in the user_menu table.
-     */
     if (menuIds.length > 0) {
       const placeholders = menuIds.map(() => "?").join(",");
 
@@ -366,13 +303,13 @@ router.post("/:branchId/permissions", async (req, res) => {
         FROM user_menu
         WHERE id IN (${placeholders})
         `,
-        menuIds
+        menuIds,
       );
 
       const validMenuIds = menuRows.map((menu) => Number(menu.id));
 
       const invalidMenuIds = menuIds.filter(
-        (id) => !validMenuIds.includes(id)
+        (id) => !validMenuIds.includes(id),
       );
 
       if (invalidMenuIds.length > 0) {
@@ -384,36 +321,21 @@ router.post("/:branchId/permissions", async (req, res) => {
       }
     }
 
-    /*
-     * Start transaction
-     */
     const connection = await db.getConnection();
 
     try {
       await connection.beginTransaction();
 
-      /*
-       * Remove the branch's existing permissions.
-       *
-       * This makes the submitted checkbox selection
-       * the complete/current permission list.
-       */
       await connection.query(
         `
         DELETE FROM user_user_menu
         WHERE user_id = ?
         `,
-        [branch_id]
+        [branch_id],
       );
 
-      /*
-       * Insert the newly selected permissions.
-       */
       if (menuIds.length > 0) {
-        const values = menuIds.map((menuId) => [
-          branch_id,
-          menuId,
-        ]);
+        const values = menuIds.map((menuId) => [branch_id, menuId]);
 
         await connection.query(
           `
@@ -421,7 +343,7 @@ router.post("/:branchId/permissions", async (req, res) => {
             (user_id, user_menu_id)
           VALUES ?
           `,
-          [values]
+          [values],
         );
       }
 
@@ -457,10 +379,6 @@ router.post("/:branchId/permissions", async (req, res) => {
 
 router.get("/:branchId", async (req, res) => {
   try {
-    // ---------------------------------------------------------
-    // Get logged-in user
-    // ---------------------------------------------------------
-
     const user = getUserFromCookie(req);
 
     if (!user) {
@@ -469,10 +387,6 @@ router.get("/:branchId", async (req, res) => {
         message: "User authentication cookie not found.",
       });
     }
-
-    // ---------------------------------------------------------
-    // Validate branch ID
-    // ---------------------------------------------------------
 
     const branchId = Number(req.params.branchId);
 
@@ -483,41 +397,33 @@ router.get("/:branchId", async (req, res) => {
       });
     }
 
-    // ---------------------------------------------------------
-    // Fetch branch
-    //
-    // Branches are stored in users table with role = 4.
-    // Only allow branches belonging to the logged-in user's
-    // company.
-    // ---------------------------------------------------------
-
     const [branchRows] = await db.query(
-  `
-  SELECT
-    b.id,
-    b.company_id,
-    b.company_name AS branch_name,
-    b.name,
-    b.designation,
-    b.phone,
-    b.email,
-    b.address,
-    b.logo,
-    b.expiry_date,
-    b.created_at,
-    b.updated_at
-  FROM users AS b
-  WHERE b.id = ?
-    AND b.company_id = ?
-    AND b.role = 4
-  LIMIT 1
-  `,
-  [branchId, user.company_id]
-);
-
-    // ---------------------------------------------------------
-    // Branch not found
-    // ---------------------------------------------------------
+      `
+      SELECT
+        b.id,
+        b.company_id,
+        b.company_name AS branch_name,
+        b.name,
+        b.designation,
+        od.name AS designation_name,
+        b.phone,
+        b.email,
+        b.password,
+        b.address,
+        b.logo,
+        b.expiry_date,
+        b.created_at,
+        b.updated_at
+      FROM users AS b
+      LEFT JOIN organization_designation AS od
+        ON od.id = b.designation
+      WHERE b.id = ?
+        AND b.company_id = ?
+        AND b.role = 4
+      LIMIT 1
+      `,
+      [branchId, user.company_id],
+    );
 
     if (branchRows.length === 0) {
       return res.status(404).json({
@@ -525,10 +431,6 @@ router.get("/:branchId", async (req, res) => {
         message: "Branch not found.",
       });
     }
-
-    // ---------------------------------------------------------
-    // Return branch
-    // ---------------------------------------------------------
 
     return res.status(200).json({
       success: true,
@@ -550,15 +452,8 @@ router.get("/:branchId", async (req, res) => {
 // PUT /api/branches/:branchId
 // =========================================================
 
-// =========================================================
-// UPDATE BRANCH
-// PUT /api/branches/:branchId
-// =========================================================
 router.put("/:branchId", upload.single("logo"), async (req, res) => {
   try {
-    // ---------------------------------------------------------
-    // Get logged-in user
-    // ---------------------------------------------------------
     const user = getUserFromCookie(req);
 
     if (!user) {
@@ -568,9 +463,6 @@ router.put("/:branchId", upload.single("logo"), async (req, res) => {
       });
     }
 
-    // ---------------------------------------------------------
-    // Validate branch ID
-    // ---------------------------------------------------------
     const branchId = Number(req.params.branchId);
 
     if (!Number.isInteger(branchId) || branchId <= 0) {
@@ -580,9 +472,6 @@ router.put("/:branchId", upload.single("logo"), async (req, res) => {
       });
     }
 
-    // ---------------------------------------------------------
-    // Get form data
-    // ---------------------------------------------------------
     const {
       branchName,
       name,
@@ -593,9 +482,6 @@ router.put("/:branchId", upload.single("logo"), async (req, res) => {
       location,
     } = req.body;
 
-    // ---------------------------------------------------------
-    // Validate branch name
-    // ---------------------------------------------------------
     if (!branchName || !branchName.trim()) {
       return res.status(400).json({
         success: false,
@@ -603,19 +489,16 @@ router.put("/:branchId", upload.single("logo"), async (req, res) => {
       });
     }
 
-    // ---------------------------------------------------------
-    // Check branch belongs to logged-in user's company
-    // ---------------------------------------------------------
     const [branchRows] = await db.query(
       `
-      SELECT id, logo
+      SELECT id, logo, password
       FROM users
       WHERE id = ?
         AND company_id = ?
         AND role = 4
       LIMIT 1
       `,
-      [branchId, user.company_id]
+      [branchId, user.company_id],
     );
 
     if (branchRows.length === 0) {
@@ -628,7 +511,7 @@ router.put("/:branchId", upload.single("logo"), async (req, res) => {
     const existingBranch = branchRows[0];
 
     // ---------------------------------------------------------
-    // Check duplicate email
+    // Duplicate email check
     // ---------------------------------------------------------
     if (email && email.trim()) {
       const [emailRows] = await db.query(
@@ -639,7 +522,7 @@ router.put("/:branchId", upload.single("logo"), async (req, res) => {
           AND id != ?
         LIMIT 1
         `,
-        [email.trim(), branchId]
+        [email.trim(), branchId],
       );
 
       if (emailRows.length > 0) {
@@ -647,6 +530,64 @@ router.put("/:branchId", upload.single("logo"), async (req, res) => {
           success: false,
           code: "EMAIL_EXISTS",
           message: "This email is already used by another user.",
+        });
+      }
+    }
+
+    // ---------------------------------------------------------
+    // Duplicate phone check
+    // ---------------------------------------------------------
+    if (phone && phone.trim()) {
+      const [phoneRows] = await db.query(
+        `
+        SELECT id
+        FROM users
+        WHERE phone = ?
+          AND id != ?
+        LIMIT 1
+        `,
+        [phone.trim(), branchId],
+      );
+
+      if (phoneRows.length > 0) {
+        return res.status(409).json({
+          success: false,
+          code: "PHONE_EXISTS",
+          message: "This phone number is already used by another user.",
+        });
+      }
+    }
+
+    // ---------------------------------------------------------
+    // Designation validation
+    // ---------------------------------------------------------
+    const designationId =
+      designation !== undefined && designation !== null && designation !== ""
+        ? Number(designation)
+        : null;
+
+    if (designationId !== null) {
+      if (!Number.isInteger(designationId) || designationId < 1) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid designation.",
+        });
+      }
+
+      const [designationRows] = await db.query(
+        `
+        SELECT id
+        FROM organization_designation
+        WHERE id = ?
+        LIMIT 1
+        `,
+        [designationId],
+      );
+
+      if (designationRows.length === 0) {
+        return res.status(400).json({
+          success: false,
+          message: "Selected designation does not exist.",
         });
       }
     }
@@ -668,16 +609,31 @@ router.put("/:branchId", upload.single("logo"), async (req, res) => {
       name ? name.trim() : null,
       phone ? phone.trim() : null,
       email ? email.trim() : null,
-      designation ? designation.trim() : null,
+      designationId,
       location ? location.trim() : null,
     ];
 
     // ---------------------------------------------------------
-    // Password
+    // Password — only re-hash if the user typed a new one
     // ---------------------------------------------------------
     if (password && password.trim()) {
-      updateFields.push("password = ?");
-      updateValues.push(password.trim());
+      const incoming = password.trim();
+
+      // If the incoming value equals the stored hash, keep as-is
+      // (the frontend pre-fills the hash)
+      if (incoming === existingBranch.password) {
+        // no change
+      } else if (/^\$2[aby]\$/.test(incoming)) {
+        // Already a bcrypt hash — keep it as-is
+        updateFields.push("password = ?");
+        updateValues.push(incoming);
+      } else {
+        // Plain password — hash it
+        const hashed = await bcrypt.hash(incoming, 12);
+
+        updateFields.push("password = ?");
+        updateValues.push(hashed);
+      }
     }
 
     // ---------------------------------------------------------
@@ -690,9 +646,6 @@ router.put("/:branchId", upload.single("logo"), async (req, res) => {
       updateValues.push(logoPath);
     }
 
-    // ---------------------------------------------------------
-    // Branch ID + company ID
-    // ---------------------------------------------------------
     updateValues.push(branchId);
     updateValues.push(user.company_id);
 
@@ -708,7 +661,7 @@ router.put("/:branchId", upload.single("logo"), async (req, res) => {
         AND company_id = ?
         AND role = 4
       `,
-      updateValues
+      updateValues,
     );
 
     // ---------------------------------------------------------
@@ -722,8 +675,10 @@ router.put("/:branchId", upload.single("logo"), async (req, res) => {
         b.company_name AS branch_name,
         b.name,
         b.designation,
+        od.name AS designation_name,
         b.phone,
         b.email,
+        b.password,
         b.address,
         b.logo,
         b.expiry_date,
@@ -733,12 +688,14 @@ router.put("/:branchId", upload.single("logo"), async (req, res) => {
       FROM users AS b
       LEFT JOIN users AS creator
         ON creator.id = b.created_by
+      LEFT JOIN organization_designation AS od
+        ON od.id = b.designation
       WHERE b.id = ?
         AND b.company_id = ?
         AND b.role = 4
       LIMIT 1
       `,
-      [branchId, user.company_id]
+      [branchId, user.company_id],
     );
 
     return res.status(200).json({
@@ -757,7 +714,6 @@ router.put("/:branchId", upload.single("logo"), async (req, res) => {
   }
 });
 
-
 // =========================================================
 // DELETE BRANCH
 // DELETE /api/branches/:branchId
@@ -767,7 +723,6 @@ router.delete("/:branchId", async (req, res) => {
   let connection;
 
   try {
-    // Get logged-in user
     const user = getUserFromCookie(req);
 
     if (!user) {
@@ -786,10 +741,6 @@ router.delete("/:branchId", async (req, res) => {
       });
     }
 
-    // ---------------------------------------------------------
-    // Check that branch belongs to logged-in user's company
-    // ---------------------------------------------------------
-
     const [branchRows] = await db.query(
       `
       SELECT
@@ -802,7 +753,7 @@ router.delete("/:branchId", async (req, res) => {
         AND role = 4
       LIMIT 1
       `,
-      [branchId, user.company_id]
+      [branchId, user.company_id],
     );
 
     if (branchRows.length === 0) {
@@ -814,29 +765,17 @@ router.delete("/:branchId", async (req, res) => {
 
     const branch = branchRows[0];
 
-    // ---------------------------------------------------------
-    // Start transaction
-    // ---------------------------------------------------------
-
     connection = await db.getConnection();
 
     await connection.beginTransaction();
-
-    // ---------------------------------------------------------
-    // Delete branch permissions first
-    // ---------------------------------------------------------
 
     await connection.query(
       `
       DELETE FROM user_user_menu
       WHERE user_id = ?
       `,
-      [branchId]
+      [branchId],
     );
-
-    // ---------------------------------------------------------
-    // Delete branch
-    // ---------------------------------------------------------
 
     await connection.query(
       `
@@ -845,7 +784,7 @@ router.delete("/:branchId", async (req, res) => {
         AND company_id = ?
         AND role = 4
       `,
-      [branchId, user.company_id]
+      [branchId, user.company_id],
     );
 
     await connection.commit();
@@ -874,4 +813,5 @@ router.delete("/:branchId", async (req, res) => {
     }
   }
 });
+
 export default router;
