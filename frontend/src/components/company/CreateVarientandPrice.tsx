@@ -8,7 +8,10 @@ import {
   CheckCircle2,
   ChevronDown,
   Loader2,
+  Pencil,
   Plus,
+  Trash2,
+  RefreshCw,
   X,
 } from "lucide-react";
 
@@ -44,6 +47,19 @@ interface VariantPrice {
   price: string;
 }
 
+interface MenuPriceRow {
+  id: number;
+  menu_subcategory_id: number;
+  menu_name: string;
+  menu_category_id: number;
+  category_name: string;
+  variant_id: number | null;
+  variant_name: string;
+  cost: number;
+  price: number;
+  profit: number;
+}
+
 interface StatusMessage {
   type: "success" | "error" | "warning";
   title: string;
@@ -56,54 +72,43 @@ const CreateMenuVariant = () => {
   const [categoryId, setCategoryId] = useState("");
   const [menuItemId, setMenuItemId] = useState("");
 
-  /* ------------------------------------------------------------------------
-     Selected Variants
-     ------------------------------------------------------------------------ */
   const [selectedVariantIds, setSelectedVariantIds] = useState<number[]>([]);
 
-  /* ------------------------------------------------------------------------
-     Sell Price Per Variant
-     ------------------------------------------------------------------------ */
   const [variantPrices, setVariantPrices] = useState<VariantPrice[]>([]);
 
-  /* ------------------------------------------------------------------------
-     Data
-     ------------------------------------------------------------------------ */
   const [categories, setCategories] = useState<MenuCategory[]>([]);
   const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
   const [variants, setVariants] = useState<Variant[]>([]);
 
-  /* ------------------------------------------------------------------------
-     IMPORTANT:
-     ingredientList now contains ALL ingredients allocated to
-     the selected submenu/menu item.
-     ------------------------------------------------------------------------ */
   const [ingredientList, setIngredientList] = useState<Ingredient[]>([]);
 
-  /* ------------------------------------------------------------------------
-     Ingredient Quantities
-     ------------------------------------------------------------------------ */
   const [ingredientQuantities, setIngredientQuantities] = useState<
     Record<number, Record<number, string>>
   >({});
 
   const [showVariants, setShowVariants] = useState(false);
 
-  /* ------------------------------------------------------------------------
-     Loading States
-     ------------------------------------------------------------------------ */
   const [loadingCategories, setLoadingCategories] = useState(true);
   const [loadingMenuItems, setLoadingMenuItems] = useState(false);
   const [loadingVariants, setLoadingVariants] = useState(false);
   const [loadingIngredients, setLoadingIngredients] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
-  /* ------------------------------------------------------------------------
-     Inline Status Message
-     ------------------------------------------------------------------------ */
   const [statusMessage, setStatusMessage] = useState<StatusMessage | null>(
     null,
   );
+
+  /* -------------------------------------------------------------
+     LIST STATE
+     ------------------------------------------------------------- */
+  const [list, setList] = useState<MenuPriceRow[]>([]);
+  const [listLoading, setListLoading] = useState(true);
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [deletingId, setDeletingId] = useState<number | null>(null);
+
+  /* Edit mode for list rows */
+  const [editingRowId, setEditingRowId] = useState<number | null>(null);
 
   const showStatus = (
     type: StatusMessage["type"],
@@ -117,9 +122,6 @@ const CreateMenuVariant = () => {
     setStatusMessage(null);
   };
 
-  /* ------------------------------------------------------------------------
-     Auto-dismiss status
-     ------------------------------------------------------------------------ */
   useEffect(() => {
     if (!statusMessage) return;
 
@@ -130,9 +132,9 @@ const CreateMenuVariant = () => {
     return () => clearTimeout(timer);
   }, [statusMessage]);
 
-  /* ------------------------------------------------------------------------
-     Fetch Categories
-     ------------------------------------------------------------------------ */
+  /* -------------------------------------------------------------
+     FETCH CATEGORIES
+     ------------------------------------------------------------- */
   const fetchCategories = async () => {
     try {
       setLoadingCategories(true);
@@ -164,9 +166,9 @@ const CreateMenuVariant = () => {
     }
   };
 
-  /* ------------------------------------------------------------------------
-     Fetch Menu Items According To Category
-     ------------------------------------------------------------------------ */
+  /* -------------------------------------------------------------
+     FETCH MENU ITEMS
+     ------------------------------------------------------------- */
   const fetchMenuItems = async (selectedCategoryId: string) => {
     if (!selectedCategoryId) {
       setMenuItems([]);
@@ -205,9 +207,9 @@ const CreateMenuVariant = () => {
     }
   };
 
-  /* ------------------------------------------------------------------------
-     Fetch Variants According To Menu Item and Category
-     ------------------------------------------------------------------------ */
+  /* -------------------------------------------------------------
+     FETCH VARIANTS
+     ------------------------------------------------------------- */
   const fetchVariants = async (selectedMenuItemId: string) => {
     if (!selectedMenuItemId) {
       setVariants([]);
@@ -246,9 +248,9 @@ const CreateMenuVariant = () => {
     }
   };
 
-  /* ------------------------------------------------------------------------
-     Fetch ALL Allocated Ingredients According To Menu Item
-     ------------------------------------------------------------------------ */
+  /* -------------------------------------------------------------
+     FETCH INGREDIENTS
+     ------------------------------------------------------------- */
   const fetchIngredients = async (selectedMenuItemId: string) => {
     if (!selectedMenuItemId) {
       setIngredientList([]);
@@ -280,25 +282,61 @@ const CreateMenuVariant = () => {
       showStatus(
         "error",
         "Failed to load ingredients",
-        error instanceof Error
-          ? error.message
-          : "Unable to load ingredients.",
+        error instanceof Error ? error.message : "Unable to load ingredients.",
       );
     } finally {
       setLoadingIngredients(false);
     }
   };
 
-  /* ------------------------------------------------------------------------
-     Initial Category Loading
-     ------------------------------------------------------------------------ */
+  /* -------------------------------------------------------------
+     FETCH LIST
+     ------------------------------------------------------------- */
+  const fetchList = async (requestedPage = page) => {
+    try {
+      setListLoading(true);
+
+      const response = await fetch(
+        `${API_BASE_URL}/api/menu-varient/list?page=${requestedPage}&limit=10`,
+        {
+          credentials: "include",
+        },
+      );
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.message || "Failed to fetch list.");
+      }
+
+      setList(data.data || []);
+      setTotalPages(data.pagination?.totalPages || 1);
+    } catch (error) {
+      console.error("Error fetching list:", error);
+
+      setList([]);
+
+      showStatus(
+        "error",
+        "Failed to load list",
+        error instanceof Error ? error.message : "Unable to load list.",
+      );
+    } finally {
+      setListLoading(false);
+    }
+  };
+
   useEffect(() => {
     fetchCategories();
   }, []);
 
-  /* ------------------------------------------------------------------------
-     Keep Ingredient Quantity Matrix In Sync
-     ------------------------------------------------------------------------ */
+  useEffect(() => {
+    fetchList(page);
+  }, [page]);
+
+  /* -------------------------------------------------------------
+     SYNC QUANTITY MATRIX
+     ------------------------------------------------------------- */
   useEffect(() => {
     setIngredientQuantities((previous) => {
       const updated: Record<number, Record<number, string>> = {};
@@ -316,9 +354,9 @@ const CreateMenuVariant = () => {
     });
   }, [ingredientList, selectedVariantIds]);
 
-  /* ------------------------------------------------------------------------
-     Category Change
-     ------------------------------------------------------------------------ */
+  /* -------------------------------------------------------------
+     HANDLE CATEGORY CHANGE
+     ------------------------------------------------------------- */
   const handleCategoryChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const value = e.target.value;
 
@@ -338,9 +376,9 @@ const CreateMenuVariant = () => {
     }
   };
 
-  /* ------------------------------------------------------------------------
-     Menu Item Change
-     ------------------------------------------------------------------------ */
+  /* -------------------------------------------------------------
+     HANDLE MENU ITEM CHANGE
+     ------------------------------------------------------------- */
   const handleMenuItemChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const value = e.target.value;
 
@@ -359,9 +397,9 @@ const CreateMenuVariant = () => {
     }
   };
 
-  /* ------------------------------------------------------------------------
-     Variant Selection
-     ------------------------------------------------------------------------ */
+  /* -------------------------------------------------------------
+     VARIANT SELECTION
+     ------------------------------------------------------------- */
   const handleVariantChange = (variantId: number) => {
     if (variantId === NO_VARIANT_ID) {
       setSelectedVariantIds((previous) => {
@@ -417,9 +455,6 @@ const CreateMenuVariant = () => {
     });
   };
 
-  /* ------------------------------------------------------------------------
-     Select / Unselect All Variants
-     ------------------------------------------------------------------------ */
   const handleSelectAllVariants = () => {
     if (selectedVariantIds.length === variants.length && variants.length > 0) {
       setSelectedVariantIds([]);
@@ -439,9 +474,9 @@ const CreateMenuVariant = () => {
     );
   };
 
-  /* ------------------------------------------------------------------------
-     Quantity Change
-     ------------------------------------------------------------------------ */
+  /* -------------------------------------------------------------
+     QUANTITY CHANGE
+     ------------------------------------------------------------- */
   const handleQuantityChange = (
     ingredientId: number,
     variantId: number,
@@ -460,16 +495,13 @@ const CreateMenuVariant = () => {
     }));
   };
 
-  /* ------------------------------------------------------------------------
-     Get Quantity
-     ------------------------------------------------------------------------ */
   const getIngredientQuantity = (ingredientId: number, variantId: number) => {
     return ingredientQuantities[ingredientId]?.[variantId] || "";
   };
 
-  /* ------------------------------------------------------------------------
-     Sell Price Change
-     ------------------------------------------------------------------------ */
+  /* -------------------------------------------------------------
+     PRICE CHANGE
+     ------------------------------------------------------------- */
   const handlePriceChange = (variantId: number, price: string) => {
     if (price !== "" && !/^\d*\.?\d*$/.test(price)) {
       return;
@@ -487,9 +519,6 @@ const CreateMenuVariant = () => {
     );
   };
 
-  /* ------------------------------------------------------------------------
-     Get Ingredient Cost
-     ------------------------------------------------------------------------ */
   const getIngredientCost = (ingredientId: number, quantity: string) => {
     const ingredient = ingredientList.find((item) => item.id === ingredientId);
 
@@ -500,9 +529,6 @@ const CreateMenuVariant = () => {
     return Number(ingredient.cost_per_unit) * Number(quantity);
   };
 
-  /* ------------------------------------------------------------------------
-     Calculate Total Cost For One Variant
-     ------------------------------------------------------------------------ */
   const getVariantTotalCost = (variantId: number) => {
     return ingredientList.reduce((total, ingredient) => {
       const quantity = getIngredientQuantity(ingredient.id, variantId);
@@ -511,18 +537,12 @@ const CreateMenuVariant = () => {
     }, 0);
   };
 
-  /* ------------------------------------------------------------------------
-     Variant Sell Price
-     ------------------------------------------------------------------------ */
   const getVariantPrice = (variantId: number) => {
     return (
       variantPrices.find((item) => item.variantId === variantId)?.price || ""
     );
   };
 
-  /* ------------------------------------------------------------------------
-     Variant Profit
-     ------------------------------------------------------------------------ */
   const getVariantProfit = (variantId: number) => {
     const cost = getVariantTotalCost(variantId);
     const price = Number(getVariantPrice(variantId));
@@ -534,31 +554,21 @@ const CreateMenuVariant = () => {
     return price - cost;
   };
 
-  /* ------------------------------------------------------------------------
-     Submit
-     ------------------------------------------------------------------------ */
+  /* -------------------------------------------------------------
+     SUBMIT (create / update)
+     ------------------------------------------------------------- */
   const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
 
     clearStatus();
 
     if (!categoryId) {
-      showStatus(
-        "warning",
-        "Category Required",
-        "Please choose a category.",
-      );
-
+      showStatus("warning", "Category Required", "Please choose a category.");
       return;
     }
 
     if (!menuItemId) {
-      showStatus(
-        "warning",
-        "Menu Item Required",
-        "Please choose a menu item.",
-      );
-
+      showStatus("warning", "Menu Item Required", "Please choose a menu item.");
       return;
     }
 
@@ -568,7 +578,6 @@ const CreateMenuVariant = () => {
         "Variant Required",
         "Please select at least one variant.",
       );
-
       return;
     }
 
@@ -578,7 +587,6 @@ const CreateMenuVariant = () => {
         "No Ingredients Found",
         "No ingredients are allocated to this submenu.",
       );
-
       return;
     }
 
@@ -634,18 +642,13 @@ const CreateMenuVariant = () => {
 
         return {
           variant_id: variantId === NO_VARIANT_ID ? null : variantId,
-
           variant_name:
             variantId === NO_VARIANT_ID
               ? "No Variant"
               : variant?.variant_name || "",
-
           buy_cost: Number(getVariantTotalCost(variantId).toFixed(2)),
-
           sell_price: Number(getVariantPrice(variantId)),
-
           profit: Number(getVariantProfit(variantId).toFixed(2)),
-
           ingredients: ingredientList.map((ingredient) => {
             const quantity = Number(
               getIngredientQuantity(ingredient.id, variantId),
@@ -671,37 +674,73 @@ const CreateMenuVariant = () => {
         };
       });
 
-      const response = await fetch(`${API_BASE_URL}/api/menu-varient`, {
-        method: "POST",
-        credentials: "include",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(
-          variantData.map((item) => ({
-            menu_subcategory_id: Number(menuItemId),
-            variant_id: item.variant_id,
-            price: item.sell_price,
-            profit: item.profit,
-            ingredients: item.ingredients.map((ing) => ({
-              ingredient_id: ing.ingredient_id,
-              quantity: ing.quantity,
+      /* If editing a single row, we PUT; else POST */
+      const isEditing = editingRowId !== null;
+
+      if (isEditing) {
+        const row = variantData[0];
+
+        const response = await fetch(
+          `${API_BASE_URL}/api/menu-varient/${editingRowId}`,
+          {
+            method: "PUT",
+            credentials: "include",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              price: row.sell_price,
+              profit: row.profit,
+              ingredients: row.ingredients.map((ing) => ({
+                ingredient_id: ing.ingredient_id,
+                quantity: ing.quantity,
+              })),
+            }),
+          },
+        );
+
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(data.message || "Failed to update menu variant.");
+        }
+
+        showStatus(
+          "success",
+          "Updated Successfully",
+          "Menu variant has been updated successfully.",
+        );
+
+        setEditingRowId(null);
+      } else {
+        const response = await fetch(`${API_BASE_URL}/api/menu-varient`, {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(
+            variantData.map((item) => ({
+              menu_subcategory_id: Number(menuItemId),
+              variant_id: item.variant_id,
+              price: item.sell_price,
+              profit: item.profit,
+              ingredients: item.ingredients.map((ing) => ({
+                ingredient_id: ing.ingredient_id,
+                quantity: ing.quantity,
+              })),
             })),
-          })),
-        ),
-      });
+          ),
+        });
 
-      const data = await response.json();
+        const data = await response.json();
 
-      if (!response.ok) {
-        throw new Error(data.message || "Failed to create menu variant.");
+        if (!response.ok) {
+          throw new Error(data.message || "Failed to create menu variant.");
+        }
+
+        showStatus(
+          "success",
+          "Created Successfully",
+          "Menu variant has been created successfully.",
+        );
       }
-
-      showStatus(
-        "success",
-        "Created Successfully",
-        "Menu variant has been created successfully.",
-      );
 
       setCategoryId("");
       setMenuItemId("");
@@ -712,12 +751,14 @@ const CreateMenuVariant = () => {
       setIngredientList([]);
       setIngredientQuantities({});
       setShowVariants(false);
+
+      await fetchList(page);
     } catch (error) {
-      console.error("Error creating menu variant:", error);
+      console.error("Error submitting menu variant:", error);
 
       showStatus(
         "error",
-        "Creation Failed",
+        "Submission Failed",
         error instanceof Error ? error.message : "Something went wrong.",
       );
     } finally {
@@ -725,9 +766,129 @@ const CreateMenuVariant = () => {
     }
   };
 
-  /* ------------------------------------------------------------------------
-     Selected Variant Objects
-     ------------------------------------------------------------------------ */
+  /* -------------------------------------------------------------
+     EDIT ROW
+     ------------------------------------------------------------- */
+  const handleEditRow = async (row: MenuPriceRow) => {
+    try {
+      clearStatus();
+      setEditingRowId(row.id);
+
+      /* Load category + menu items list */
+      setCategoryId(String(row.menu_category_id));
+      await fetchMenuItems(String(row.menu_category_id));
+
+      /* Load menu item */
+      setMenuItemId(String(row.menu_subcategory_id));
+
+      await Promise.all([
+        fetchVariants(String(row.menu_subcategory_id)),
+        fetchIngredients(String(row.menu_subcategory_id)),
+      ]);
+
+      /* Fetch the row to get its ingredients */
+      const response = await fetch(
+        `${API_BASE_URL}/api/menu-varient/${row.id}`,
+        {
+          credentials: "include",
+        },
+      );
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.message || "Failed to load row.");
+      }
+
+      const single = data.data;
+
+      const variantId =
+        single.variant_id === null || single.variant_id === undefined
+          ? NO_VARIANT_ID
+          : Number(single.variant_id);
+
+      setSelectedVariantIds([variantId]);
+      setVariantPrices([{ variantId, price: String(single.price ?? "") }]);
+
+      /* Build quantities map for this variant */
+      const quantityMap: Record<number, Record<number, string>> = {};
+
+      for (const ing of single.ingredients || []) {
+        const ingId = Number(ing.ingredient_id);
+        const qty = String(ing.quantity);
+
+        if (!quantityMap[ingId]) {
+          quantityMap[ingId] = {};
+        }
+
+        quantityMap[ingId][variantId] = qty;
+      }
+
+      setIngredientQuantities(quantityMap);
+
+      /* Scroll to form */
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    } catch (error) {
+      console.error("Error loading row for edit:", error);
+
+      showStatus(
+        "error",
+        "Edit Failed",
+        error instanceof Error ? error.message : "Unable to load row.",
+      );
+    }
+  };
+
+  /* -------------------------------------------------------------
+     DELETE ROW
+     ------------------------------------------------------------- */
+  const handleDeleteRow = async (row: MenuPriceRow) => {
+    const confirmed = window.confirm(
+      `Delete the variant "${row.variant_name}" for "${row.menu_name}"?`,
+    );
+
+    if (!confirmed) return;
+
+    try {
+      setDeletingId(row.id);
+
+      const response = await fetch(
+        `${API_BASE_URL}/api/menu-varient/${row.id}`,
+        {
+          method: "DELETE",
+          credentials: "include",
+        },
+      );
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.message || "Failed to delete.");
+      }
+
+      showStatus(
+        "success",
+        "Deleted Successfully",
+        "Menu variant has been deleted.",
+      );
+
+      await fetchList(page);
+    } catch (error) {
+      console.error("Error deleting row:", error);
+
+      showStatus(
+        "error",
+        "Delete Failed",
+        error instanceof Error ? error.message : "Unable to delete.",
+      );
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
+  /* -------------------------------------------------------------
+     SELECTED VARIANT OBJECTS
+     ------------------------------------------------------------- */
   const selectedVariantObjects = useMemo(() => {
     if (selectedVariantIds.includes(NO_VARIANT_ID)) {
       return [
@@ -743,9 +904,36 @@ const CreateMenuVariant = () => {
     );
   }, [variants, selectedVariantIds]);
 
-  /* ------------------------------------------------------------------------
-     Status styles
-     ------------------------------------------------------------------------ */
+  /* -------------------------------------------------------------
+   GROUP LIST BY MENU ITEM
+   ------------------------------------------------------------- */
+  const groupedList = useMemo(() => {
+    const groups: {
+      menu_subcategory_id: number;
+      menu_name: string;
+      rows: MenuPriceRow[];
+    }[] = [];
+
+    const indexMap = new Map<number, number>();
+
+    for (const row of list) {
+      const key = row.menu_subcategory_id;
+
+      if (indexMap.has(key)) {
+        groups[indexMap.get(key)!].rows.push(row);
+      } else {
+        indexMap.set(key, groups.length);
+        groups.push({
+          menu_subcategory_id: key,
+          menu_name: row.menu_name,
+          rows: [row],
+        });
+      }
+    }
+
+    return groups;
+  }, [list]);
+
   const statusStyles: Record<StatusMessage["type"], string> = {
     success:
       "border-green-300 bg-green-50 text-green-800 dark:border-green-800 dark:bg-green-950 dark:text-green-200",
@@ -762,9 +950,9 @@ const CreateMenuVariant = () => {
 
   return (
     <div className="min-h-screen bg-[var(--surface-dark)] p-4 md:p-6">
-      <div className="mx-auto max-w-[1500px]">
+      <div className="mx-auto max-w-[1500px] space-y-6">
         {/* Page Header */}
-        <div className="mb-6">
+        <div>
           <h1 className="text-2xl font-bold text-[var(--text-primary)]">
             Create Menu Variant
           </h1>
@@ -778,7 +966,7 @@ const CreateMenuVariant = () => {
         {/* Inline Status Message */}
         {statusMessage && (
           <div
-            className={`mb-4 flex items-start gap-2 rounded-lg border px-3 py-2 text-xs ${statusStyles[statusMessage.type]}`}
+            className={`flex items-start gap-2 rounded-lg border px-3 py-2 text-xs ${statusStyles[statusMessage.type]}`}
           >
             <span className="mt-0.5 shrink-0">
               <StatusIcon type={statusMessage.type} />
@@ -805,7 +993,6 @@ const CreateMenuVariant = () => {
           <form onSubmit={handleSubmit}>
             {/* Category + Menu Item */}
             <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
-              {/* Category */}
               <div>
                 <label
                   htmlFor="category"
@@ -836,7 +1023,6 @@ const CreateMenuVariant = () => {
                 </select>
               </div>
 
-              {/* Menu Item */}
               <div>
                 <label
                   htmlFor="menuItem"
@@ -870,7 +1056,7 @@ const CreateMenuVariant = () => {
               </div>
             </div>
 
-            {/* Allocated Ingredient Loading Status */}
+            {/* Ingredient Loading */}
             {menuItemId && loadingIngredients && (
               <div className="mt-4 flex items-center gap-2 text-sm text-[var(--text-secondary)]">
                 <Loader2 className="h-4 w-4 animate-spin" />
@@ -878,9 +1064,7 @@ const CreateMenuVariant = () => {
               </div>
             )}
 
-            {/* =========================================================
-                Multiple Variants
-               ========================================================= */}
+            {/* Variants */}
             <div className="mt-5">
               <label className="mb-2 block text-sm font-medium text-[var(--text-primary)]">
                 Variants
@@ -939,33 +1123,22 @@ const CreateMenuVariant = () => {
                   )}
 
                   <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">
-                    {(() => {
-                      const selected = selectedVariantIds.includes(
-                        NO_VARIANT_ID,
-                      );
+                    <button
+                      type="button"
+                      onClick={() => handleVariantChange(NO_VARIANT_ID)}
+                      disabled={submitting}
+                      className={`flex items-center justify-between gap-2 rounded-lg border px-3 py-2 text-left text-sm transition ${
+                        selectedVariantIds.includes(NO_VARIANT_ID)
+                          ? "border-[var(--primary)] bg-[var(--primary)] text-white"
+                          : "border-[var(--border)] bg-[var(--surface)] text-[var(--text-primary)] hover:bg-[var(--surface-grey)]"
+                      } disabled:cursor-not-allowed disabled:opacity-60`}
+                    >
+                      <span className="truncate font-medium">No Variant</span>
 
-                      return (
-                        <button
-                          key="no-variant"
-                          type="button"
-                          onClick={() => handleVariantChange(NO_VARIANT_ID)}
-                          disabled={submitting}
-                          className={`flex items-center justify-between gap-2 rounded-lg border px-3 py-2 text-left text-sm transition ${
-                            selected
-                              ? "border-[var(--primary)] bg-[var(--primary)] text-white"
-                              : "border-[var(--border)] bg-[var(--surface)] text-[var(--text-primary)] hover:bg-[var(--surface-grey)]"
-                          } disabled:cursor-not-allowed disabled:opacity-60`}
-                        >
-                          <span className="truncate font-medium">
-                            No Variant
-                          </span>
-
-                          {selected && (
-                            <Check className="h-4 w-4 shrink-0" />
-                          )}
-                        </button>
-                      );
-                    })()}
+                      {selectedVariantIds.includes(NO_VARIANT_ID) && (
+                        <Check className="h-4 w-4 shrink-0" />
+                      )}
+                    </button>
 
                     {variants.map((variant) => {
                       const selected = selectedVariantIds.includes(variant.id);
@@ -986,9 +1159,7 @@ const CreateMenuVariant = () => {
                             {variant.variant_name}
                           </span>
 
-                          {selected && (
-                            <Check className="h-4 w-4 shrink-0" />
-                          )}
+                          {selected && <Check className="h-4 w-4 shrink-0" />}
                         </button>
                       );
                     })}
@@ -996,17 +1167,15 @@ const CreateMenuVariant = () => {
 
                   {variants.length === 0 && (
                     <p className="mt-2 text-center text-xs text-[var(--text-muted)]">
-                      No variants found for this menu item. You can still
-                      create a "No Variant" entry.
+                      No variants found for this menu item. You can still create
+                      a "No Variant" entry.
                     </p>
                   )}
                 </div>
               )}
             </div>
 
-            {/* =========================================================
-                Excel-Style Pricing Table
-               ========================================================= */}
+            {/* Pricing Table */}
             {ingredientList.length > 0 && selectedVariantObjects.length > 0 && (
               <div className="mt-6 overflow-hidden rounded-lg border border-[var(--border)]">
                 <div className="bg-[var(--surface-grey)] px-4 py-3">
@@ -1118,7 +1287,6 @@ const CreateMenuVariant = () => {
                         </tr>
                       ))}
 
-                      {/* Buy Cost */}
                       <tr className="bg-[var(--surface-grey)]">
                         <td className="sticky left-0 z-10 border-r border-[var(--border)] bg-[var(--surface-grey)] px-3 py-2 font-semibold text-[var(--text-primary)]">
                           Buy Cost
@@ -1135,7 +1303,6 @@ const CreateMenuVariant = () => {
                         ))}
                       </tr>
 
-                      {/* Sell Price */}
                       <tr className="bg-[var(--surface-grey)]">
                         <td className="sticky left-0 z-10 border-r border-[var(--border)] bg-[var(--surface-grey)] px-3 py-2 font-semibold text-[var(--text-primary)]">
                           Sell Price
@@ -1171,7 +1338,6 @@ const CreateMenuVariant = () => {
                         ))}
                       </tr>
 
-                      {/* Profit */}
                       <tr className="bg-[var(--surface-grey)]">
                         <td className="sticky left-0 z-10 border-r border-[var(--border)] bg-[var(--surface-grey)] px-3 py-2 font-semibold text-[var(--text-primary)]">
                           Profit
@@ -1193,8 +1359,31 @@ const CreateMenuVariant = () => {
               </div>
             )}
 
-            {/* Submit Button */}
-            <div className="mt-6 flex justify-end">
+            {/* Submit / Update */}
+            <div className="mt-6 flex items-center justify-end gap-3">
+              {editingRowId !== null && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEditingRowId(null);
+                    setCategoryId("");
+                    setMenuItemId("");
+                    setSelectedVariantIds([]);
+                    setVariantPrices([]);
+                    setMenuItems([]);
+                    setVariants([]);
+                    setIngredientList([]);
+                    setIngredientQuantities({});
+                    setShowVariants(false);
+                  }}
+                  disabled={submitting}
+                  className="inline-flex items-center gap-2 rounded-lg border border-[var(--border)] px-5 py-2.5 text-sm font-medium text-[var(--text-secondary)] transition hover:bg-[var(--surface-grey)] disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  <X className="h-4 w-4" />
+                  Cancel Edit
+                </button>
+              )}
+
               <button
                 type="submit"
                 disabled={
@@ -1209,7 +1398,12 @@ const CreateMenuVariant = () => {
                 {submitting ? (
                   <>
                     <Loader2 className="h-4 w-4 animate-spin" />
-                    Creating...
+                    {editingRowId !== null ? "Updating..." : "Creating..."}
+                  </>
+                ) : editingRowId !== null ? (
+                  <>
+                    <Check className="h-4 w-4" />
+                    Update Variant
                   </>
                 ) : (
                   <>
@@ -1220,6 +1414,204 @@ const CreateMenuVariant = () => {
               </button>
             </div>
           </form>
+        </div>
+
+        {/* =========================================================
+            LIST TABLE
+           ========================================================= */}
+        <div className="overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--surface)] shadow-sm">
+          <div className="flex items-center justify-between border-b border-[var(--border)] px-5 py-4">
+            <div>
+              <h2 className="text-lg font-semibold text-[var(--text-primary)]">
+                Existing Menu Variants
+              </h2>
+
+              <p className="mt-1 text-sm text-[var(--text-secondary)]">
+                Edit or delete any existing menu variant.
+              </p>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => fetchList(page)}
+              disabled={listLoading}
+              className="inline-flex items-center gap-2 rounded-lg border border-[var(--border)] px-3 py-2 text-sm font-medium text-[var(--text-primary)] transition hover:bg-[var(--surface-grey)] disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              <RefreshCw
+                className={`h-4 w-4 ${listLoading ? "animate-spin" : ""}`}
+              />
+              Refresh
+            </button>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[900px]">
+              <thead>
+                <tr className="border-b border-[var(--border)] bg-[var(--surface-grey)]">
+                  <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-[var(--text-secondary)]">
+                    SL
+                  </th>
+                  <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-[var(--text-secondary)]">
+                    Menu Item
+                  </th>
+                  <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-[var(--text-secondary)]">
+                    Variant
+                  </th>
+                  <th className="px-5 py-3 text-right text-xs font-semibold uppercase tracking-wide text-[var(--text-secondary)]">
+                    Total Cost
+                  </th>
+                  <th className="px-5 py-3 text-right text-xs font-semibold uppercase tracking-wide text-[var(--text-secondary)]">
+                    Total Price
+                  </th>
+                  <th className="px-5 py-3 text-right text-xs font-semibold uppercase tracking-wide text-[var(--text-secondary)]">
+                    Profit
+                  </th>
+                  <th className="px-5 py-3 text-right text-xs font-semibold uppercase tracking-wide text-[var(--text-secondary)]">
+                    Actions
+                  </th>
+                </tr>
+              </thead>
+
+              <tbody>
+                {listLoading ? (
+                  <tr>
+                    <td colSpan={7} className="px-5 py-10 text-center">
+                      <div className="flex items-center justify-center gap-2 text-sm text-[var(--text-secondary)]">
+                        <Loader2 className="h-5 w-5 animate-spin" />
+                        Loading variants...
+                      </div>
+                    </td>
+                  </tr>
+                ) : groupedList.length === 0 ? (
+                  <tr>
+                    <td
+                      colSpan={7}
+                      className="px-5 py-10 text-center text-sm text-[var(--text-muted)]"
+                    >
+                      No menu variants found.
+                    </td>
+                  </tr>
+                ) : (
+                  groupedList.map((group, groupIndex) => {
+                    // Compute serial number starting point for this group
+                    const serialNumber =
+                      (page - 1) * 10 +
+                      groupedList
+                        .slice(0, groupIndex)
+                        .reduce((sum, g) => sum + g.rows.length, 0) +
+                      1;
+
+                    return group.rows.map((row, rowIndex) => {
+                      const isFirstRow = rowIndex === 0;
+                      const isDeleting = deletingId === row.id;
+
+                      return (
+                        <tr
+                          key={row.id}
+                          className="border-b border-[var(--border)] last:border-b-0 hover:bg-[var(--surface-grey)]"
+                        >
+                          {isFirstRow && (
+                            <>
+                              <td
+                                rowSpan={group.rows.length}
+                                className="border-r border-[var(--border)] px-5 py-4 align-top text-sm text-[var(--text-secondary)]"
+                              >
+                                {serialNumber}
+                              </td>
+
+                              <td
+                                rowSpan={group.rows.length}
+                                className="border-r border-[var(--border)] px-5 py-4 align-top text-sm font-medium text-[var(--text-primary)]"
+                              >
+                                {group.menu_name}
+                              </td>
+                            </>
+                          )}
+
+                          <td className="px-5 py-4 text-sm text-[var(--text-primary)]">
+                            <span className="rounded-full bg-[var(--surface-grey)] px-2.5 py-1 text-xs font-medium">
+                              {row.variant_name}
+                            </span>
+                          </td>
+
+                          <td className="px-5 py-4 text-right text-sm text-[var(--text-primary)]">
+                            ৳ {Number(row.cost).toFixed(2)}
+                          </td>
+
+                          <td className="px-5 py-4 text-right text-sm text-[var(--text-primary)]">
+                            ৳ {Number(row.price).toFixed(2)}
+                          </td>
+
+                          <td className="px-5 py-4 text-right text-sm font-medium text-green-600">
+                            ৳ {Number(row.profit || 0).toFixed(2)}
+                          </td>
+
+                          <td className="px-5 py-4">
+                            <div className="flex justify-end gap-2">
+                              <button
+                                type="button"
+                                onClick={() => handleEditRow(row)}
+                                disabled={isDeleting}
+                                title="Edit"
+                                className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--border)] px-3 py-2 text-sm font-medium text-[var(--text-primary)] transition hover:bg-[var(--surface-grey)] disabled:cursor-not-allowed disabled:opacity-60"
+                              >
+                                <Pencil className="h-4 w-4" />
+                                Edit
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteRow(row)}
+                                disabled={isDeleting}
+                                title="Delete"
+                                className="inline-flex items-center gap-1.5 rounded-lg bg-red-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-60"
+                              >
+                                {isDeleting ? (
+                                  <Loader2 className="h-4 w-4 animate-spin" />
+                                ) : (
+                                  <Trash2 className="h-4 w-4" />
+                                )}
+                                Delete
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    });
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Pagination */}
+          {!listLoading && list.length > 0 && (
+            <div className="flex items-center justify-between border-t border-[var(--border)] bg-[var(--surface-grey)] px-5 py-3">
+              <p className="text-xs text-[var(--text-secondary)]">
+                Page {page} of {totalPages}
+              </p>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  disabled={page <= 1}
+                  onClick={() => setPage((p) => Math.max(p - 1, 1))}
+                  className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-xs font-medium text-[var(--text-secondary)] transition hover:bg-[var(--surface-grey)] disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  Previous
+                </button>
+
+                <button
+                  type="button"
+                  disabled={page >= totalPages}
+                  onClick={() => setPage((p) => Math.min(p + 1, totalPages))}
+                  className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-xs font-medium text-[var(--text-secondary)] transition hover:bg-[var(--surface-grey)] disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  Next
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>
