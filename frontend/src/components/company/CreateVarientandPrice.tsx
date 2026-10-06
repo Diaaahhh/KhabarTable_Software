@@ -69,11 +69,16 @@ interface StatusMessage {
 const NO_VARIANT_ID = 0;
 
 /**
- * Cost calculation rule:
+ * Cost calculation rule (must match backend):
  *  - If unit is "pcs" (case-insensitive), quantity is used as-is.
  *  - Otherwise, quantity is assumed to be in the smaller unit (e.g. grams)
  *    and is divided by 1000 before multiplying by cost_per_unit.
  */
+const PIECE_UNITS = ["pcs", "pc", "piece", "pieces", "nos", "no", "unit", "units"];
+
+const isPieceUnit = (unitName: string) =>
+  PIECE_UNITS.includes(String(unitName || "").trim().toLowerCase());
+
 const calculateIngredientCost = (
   costPerUnit: number,
   quantity: number,
@@ -83,9 +88,7 @@ const calculateIngredientCost = (
     return 0;
   }
 
-  const normalizedUnit = String(unitName || "").trim().toLowerCase();
-
-  if (normalizedUnit === "pcs") {
+  if (isPieceUnit(unitName)) {
     return costPerUnit * quantity;
   }
 
@@ -392,11 +395,6 @@ const CreateMenuVariant = () => {
 
   /* -------------------------------------------------------------
      SYNC RATIO MATRIX
-     -------------------------------------------------------------
-     Ratio defaults:
-       - base variant (first selected) => "1" (locked)
-       - other variants                 => "1" (editable)
-     Preserve user-entered ratios across re-renders.
      ------------------------------------------------------------- */
   useEffect(() => {
     setRatioValues((previous) => {
@@ -544,8 +542,6 @@ const CreateMenuVariant = () => {
 
   /* -------------------------------------------------------------
      BASE VARIANT ID
-     -------------------------------------------------------------
-     The first selected variant acts as the base (ratio = 1, locked).
      ------------------------------------------------------------- */
   const baseVariantId = useMemo(() => {
     return selectedVariantIds.length > 0 ? selectedVariantIds[0] : null;
@@ -553,13 +549,6 @@ const CreateMenuVariant = () => {
 
   /* -------------------------------------------------------------
      QUANTITY CHANGE
-     -------------------------------------------------------------
-     When base variant's quantity changes:
-       - Auto-fill other variants' quantities using their ratios,
-         BUT only if those variants do not have a manually-entered
-         quantity. (We treat any quantity stored in ingredientQuantities
-         as "set"; to detect manual override, we compare against the
-         ratio-derived value.)
      ------------------------------------------------------------- */
   const handleQuantityChange = (
     ingredientId: number,
@@ -579,9 +568,6 @@ const CreateMenuVariant = () => {
         },
       };
 
-      // If the base variant changed, cascade ratio-derived values
-      // to the other variants ONLY when they currently have no value
-      // OR their current value matches the previous ratio-derived value.
       if (
         baseVariantId !== null &&
         variantId === baseVariantId &&
@@ -602,32 +588,7 @@ const CreateMenuVariant = () => {
             const derived = baseQuantity * ratio;
             const derivedStr = Number(derived.toFixed(4)).toString();
 
-            const currentValue =
-              previous[ingredientId]?.[otherVariantId] ?? "";
-
-            // Only auto-update if the field is empty or already
-            // matches what the ratio would produce (i.e. not manually
-            // overridden).
-            const previousRatioRaw =
-              ratioValues[ingredientId]?.[otherVariantId] ?? "1";
-            const previousRatio = Number(previousRatioRaw);
-
-            const previousDerived =
-              Number.isFinite(previousRatio) && previousRatio > 0
-                ? Number((baseQuantity * previousRatio).toFixed(4)).toString()
-                : "";
-
-            void previousDerived;
-
-            if (currentValue === "" || true) {
-              // Auto-fill: we always recompute siblings from base
-              // unless the user manually typed a value that differs.
-              // Simple approach: auto-fill whenever the user edits the
-              // base quantity. Manual overrides on siblings will be
-              // replaced — acceptable UX; the user can re-edit the
-              // sibling afterward.
-              next[ingredientId][otherVariantId] = derivedStr;
-            }
+            next[ingredientId][otherVariantId] = derivedStr;
           });
         }
       }
@@ -642,8 +603,6 @@ const CreateMenuVariant = () => {
 
   /* -------------------------------------------------------------
      RATIO CHANGE
-     -------------------------------------------------------------
-     Recomputes the sibling's quantity based on base quantity * ratio.
      ------------------------------------------------------------- */
   const handleRatioChange = (
     ingredientId: number,
@@ -662,7 +621,6 @@ const CreateMenuVariant = () => {
       },
     }));
 
-    // Recompute the quantity for this variant from base quantity.
     if (baseVariantId === null) return;
 
     const baseQuantityRaw = getIngredientQuantity(
@@ -876,7 +834,6 @@ const CreateMenuVariant = () => {
         };
       });
 
-      /* If editing a single row, we PUT; else POST */
       const isEditing = editingRowId !== null;
 
       if (isEditing) {
@@ -977,11 +934,9 @@ const CreateMenuVariant = () => {
       clearStatus();
       setEditingRowId(row.id);
 
-      /* Load category + menu items list */
       setCategoryId(String(row.menu_category_id));
       await fetchMenuItems(String(row.menu_category_id));
 
-      /* Load menu item */
       setMenuItemId(String(row.menu_subcategory_id));
 
       await Promise.all([
@@ -989,7 +944,6 @@ const CreateMenuVariant = () => {
         fetchIngredients(String(row.menu_subcategory_id)),
       ]);
 
-      /* Fetch the row to get its ingredients */
       const response = await fetch(
         `${API_BASE_URL}/api/menu-varient/${row.id}`,
         {
@@ -1013,7 +967,6 @@ const CreateMenuVariant = () => {
       setSelectedVariantIds([variantId]);
       setVariantPrices([{ variantId, price: String(single.price ?? "") }]);
 
-      /* Build quantities map for this variant */
       const quantityMap: Record<number, Record<number, string>> = {};
 
       for (const ing of single.ingredients || []) {
@@ -1029,7 +982,6 @@ const CreateMenuVariant = () => {
 
       setIngredientQuantities(quantityMap);
 
-      /* Scroll to form */
       window.scrollTo({ top: 0, behavior: "smooth" });
     } catch (error) {
       console.error("Error loading row for edit:", error);
@@ -1744,7 +1696,6 @@ const CreateMenuVariant = () => {
                   </tr>
                 ) : (
                   groupedList.map((group, groupIndex) => {
-                    // Compute serial number starting point for this group
                     const serialNumber =
                       (page - 1) * 10 +
                       groupedList

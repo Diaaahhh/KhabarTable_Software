@@ -141,7 +141,7 @@ export default function CompanyRegistration() {
       setStatusMessage(null);
     }, 4000);
 
-    return () => clearTimeout(timer);
+    return () => clearTimeout(timer); 
   }, [statusMessage]);
 
   /* ------------------------------------------------------------------

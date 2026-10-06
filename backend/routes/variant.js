@@ -154,6 +154,46 @@ const createPlaceholders = (values) => values.map(() => "?").join(",");
 
 /**
  * ============================================================================
+ * HELPER: UNIT-AWARE INGREDIENT COST
+ * ============================================================================
+ * MUST match frontend `calculateIngredientCost`:
+ *
+ *  - If unit is a piece unit ("pcs", "pc", "piece", "pieces", "nos", "no",
+ *    "unit", "units") => cost = cost_per_unit * quantity
+ *  - Otherwise (g / gm / kg / ml / l / etc.) =>
+ *      cost = cost_per_unit * (quantity / 1000)
+ */
+const PIECE_UNITS = [
+  "pcs",
+  "pc",
+  "piece",
+  "pieces",
+  "nos",
+  "no",
+  "unit",
+  "units",
+];
+
+const isPieceUnit = (unitName) =>
+  PIECE_UNITS.includes(String(unitName || "").trim().toLowerCase());
+
+const calculateIngredientCost = (costPerUnit, quantity, unitName) => {
+  const cost = Number(costPerUnit);
+  const qty = Number(quantity);
+
+  if (!Number.isFinite(cost) || !Number.isFinite(qty)) {
+    return 0;
+  }
+
+  if (isPieceUnit(unitName)) {
+    return cost * qty;
+  }
+
+  return cost * (qty / 1000);
+};
+
+/**
+ * ============================================================================
  * GET CATEGORIES
  * ============================================================================
  */
@@ -320,11 +360,6 @@ router.get("/variants", async (req, res) => {
 
     const restaurantPlaceholders = createPlaceholders(restaurantTypes);
 
-    /*
-     * ============================================================
-     * FIND MENU ITEM + CATEGORY
-     * ============================================================
-     */
     const [subcategoryRows] = await db.query(
       `
         SELECT
@@ -355,51 +390,11 @@ router.get("/variants", async (req, res) => {
 
     const categoryName = subcategoryRows[0].category_name || "";
 
-    /*
-     * ============================================================
-     * DETERMINE WHETHER THIS IS PIZZA
-     * ============================================================
-     */
-
-    const isPizza =
-      categoryName.trim().toLowerCase() === "pizza";
-
-    /*
-     * ============================================================
-     * FETCH VARIANTS
-     *
-     * ALL VARIANTS COME FROM menu_variant.
-     *
-     * Pizza:
-     *   is_pizza = 1
-     *
-     * Other categories:
-     *   is_pizza = 0
-     * ============================================================
-     */
+    const isPizza = categoryName.trim().toLowerCase() === "pizza";
 
     let variantQuery;
-    let variantParams;
 
     if (isPizza) {
-      /*
-       * Pizza variants
-       *
-       * Example:
-       * 6"
-       * 8"
-       * 9"
-       * 12"
-       * 15"
-       * 18"
-       * 20"
-       * 24"
-       * 30"
-       *
-       * The quote (") is removed before converting
-       * the value into a number for sorting.
-       */
-
       variantQuery = `
         SELECT
           id,
@@ -413,42 +408,19 @@ router.get("/variants", async (req, res) => {
             AS DECIMAL(10,2)
           ) ASC
       `;
-
-      variantParams = [];
     } else {
-      /*
-       * Non-pizza variants
-       *
-       * Only fetch variants where is_pizza = 0.
-       */
-
       variantQuery = `
-  SELECT
-    id,
-    variant_name,
-    is_pizza
-  FROM menu_variant
-  WHERE is_pizza = 0
-  ORDER BY variant_name ASC
-`;
-
-variantParams = [];
-
-variantParams = [];
-
-      variantParams = [];
+        SELECT
+          id,
+          variant_name,
+          is_pizza
+        FROM menu_variant
+        WHERE is_pizza = 0
+        ORDER BY variant_name ASC
+      `;
     }
 
-    const [variants] = await db.query(
-      variantQuery,
-      variantParams,
-    );
-
-    /*
-     * ============================================================
-     * RESPONSE
-     * ============================================================
-     */
+    const [variants] = await db.query(variantQuery);
 
     return res.status(200).json({
       success: true,
@@ -456,8 +428,7 @@ variantParams = [];
       category: {
         id: subcategoryRows[0].menu_category_id,
         name: categoryName,
-        restaurant_category_id:
-          subcategoryRows[0].Restaurant_category_id,
+        restaurant_category_id: subcategoryRows[0].Restaurant_category_id,
       },
 
       isPizza,
@@ -580,9 +551,6 @@ router.get("/ingredients", async (req, res) => {
  * ============================================================================
  * GET PAGINATED LIST OF MENU PRICES
  * ============================================================================
- *
- * GET /api/menu-varient/list?page=1&limit=10
- * ============================================================================
  */
 router.get("/list", async (req, res) => {
   try {
@@ -606,7 +574,6 @@ router.get("/list", async (req, res) => {
 
     const placeholders = createPlaceholders(restaurantTypes);
 
-    /* Total count */
     const [countRows] = await db.query(
       `
         SELECT COUNT(*) AS total
@@ -627,7 +594,6 @@ router.get("/list", async (req, res) => {
 
     const totalPages = total === 0 ? 1 : Math.ceil(total / limit);
 
-    /* Data */
     const [rows] = await db.query(
       `
         SELECT
@@ -694,9 +660,6 @@ router.get("/list", async (req, res) => {
 /**
  * ============================================================================
  * GET SINGLE MENU PRICE (with ingredients)
- * ============================================================================
- *
- * GET /api/menu-varient/:id
  * ============================================================================
  */
 router.get("/:id", async (req, res) => {
@@ -866,7 +829,7 @@ router.put("/:id", async (req, res) => {
       });
     }
 
-    /* Recalculate total cost */
+    /* Recalculate total cost (unit-aware) */
     let calculatedTotalCost = 0;
 
     for (const ing of ingredients) {
@@ -883,9 +846,13 @@ router.put("/:id", async (req, res) => {
 
       const [costRows] = await connection.query(
         `
-          SELECT cost_per_unit
-          FROM menu_ingredients
-          WHERE id = ?
+          SELECT
+            mi.cost_per_unit,
+            u.unit_name
+          FROM menu_ingredients mi
+          LEFT JOIN unit u
+            ON u.id = mi.unit_id
+          WHERE mi.id = ?
           LIMIT 1
         `,
         [ingredientId],
@@ -896,8 +863,13 @@ router.put("/:id", async (req, res) => {
       }
 
       const costPerUnit = Number(costRows[0].cost_per_unit || 0);
+      const unitName = costRows[0].unit_name || "";
 
-      calculatedTotalCost += costPerUnit * quantity;
+      calculatedTotalCost += calculateIngredientCost(
+        costPerUnit,
+        quantity,
+        unitName,
+      );
     }
 
     const totalCostFormatted = Number(calculatedTotalCost.toFixed(2));
@@ -973,9 +945,6 @@ router.put("/:id", async (req, res) => {
 /**
  * ============================================================================
  * DELETE MENU PRICE
- * ============================================================================
- *
- * DELETE /api/menu-varient/:id
  * ============================================================================
  */
 router.delete("/:id", async (req, res) => {
@@ -1169,6 +1138,7 @@ router.post("/", async (req, res) => {
         finalVariantId = Number(selectedVariantId);
       }
 
+      /* Recalculate total cost (unit-aware) */
       let calculatedTotalCost = 0;
 
       for (const ing of ingredients) {
@@ -1185,9 +1155,13 @@ router.post("/", async (req, res) => {
 
         const [costRows] = await connection.query(
           `
-            SELECT cost_per_unit
-            FROM menu_ingredients
-            WHERE id = ?
+            SELECT
+              mi.cost_per_unit,
+              u.unit_name
+            FROM menu_ingredients mi
+            LEFT JOIN unit u
+              ON u.id = mi.unit_id
+            WHERE mi.id = ?
             LIMIT 1
           `,
           [ingredientId],
@@ -1198,8 +1172,13 @@ router.post("/", async (req, res) => {
         }
 
         const costPerUnit = Number(costRows[0].cost_per_unit || 0);
+        const unitName = costRows[0].unit_name || "";
 
-        calculatedTotalCost += costPerUnit * quantity;
+        calculatedTotalCost += calculateIngredientCost(
+          costPerUnit,
+          quantity,
+          unitName,
+        );
       }
 
       const totalCostFormatted = Number(calculatedTotalCost.toFixed(2));
